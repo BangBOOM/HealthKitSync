@@ -1,0 +1,3 @@
+UPLOAD_TOKEN=replace-with-a-long-random-upload-token
+SYNC_TOKEN=replace-with-a-different-long-random-read-token
+
