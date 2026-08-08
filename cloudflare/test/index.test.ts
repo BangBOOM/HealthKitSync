@@ -101,4 +101,38 @@ describe("HealthKit Sync API", () => {
     });
     expect(response.status).toBe(200);
   });
+
+  it("returns only existing UUIDs to an upload client", async () => {
+    const response = await SELF.fetch("https://example.test/v1/activities/existence", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer local-test-upload-token-0000000000000000",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        healthkit_uuids: [
+          activity.healthkit_uuid,
+          "123e4567-e89b-42d3-a456-426614174099",
+        ],
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      healthkit_uuids: [activity.healthkit_uuid],
+    });
+  });
+
+  it("rejects invalid existence requests", async () => {
+    const response = await SELF.fetch("https://example.test/v1/activities/existence", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer local-test-upload-token-0000000000000000",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ healthkit_uuids: ["not-a-uuid"] }),
+    });
+
+    expect(response.status).toBe(422);
+  });
 });

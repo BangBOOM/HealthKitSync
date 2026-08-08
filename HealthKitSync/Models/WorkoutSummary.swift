@@ -22,6 +22,13 @@ struct WorkoutSummary: Identifiable, Hashable, Sendable {
 }
 
 extension HKWorkoutActivityType {
+    var isSupportedForUpload: Bool {
+        switch self {
+        case .cycling, .running, .hiking: true
+        default: false
+        }
+    }
+
     var apiValue: String {
         switch self {
         case .running: "running"
@@ -47,4 +54,3 @@ extension HKWorkoutActivityType {
         }
     }
 }
-

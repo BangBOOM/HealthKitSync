@@ -39,3 +39,21 @@ https://healthkit-sync-api.looplearngotoloop.workers.dev/v1/activities
 ```
 
 以及 `UPLOAD_TOKEN`。`SYNC_TOKEN` 只应保存到 GitHub Actions Secrets。
+
+## 上传前去重
+
+iOS App 使用 `UPLOAD_TOKEN` 批量检查 HealthKit UUID，接口不会返回活动详情：
+
+```http
+POST /v1/activities/existence
+Authorization: Bearer <upload token>
+Content-Type: application/json
+
+{"healthkit_uuids":["123e4567-e89b-42d3-a456-426614174000"]}
+```
+
+每次最多提交 500 个 UUID。响应只包含数据库中已经存在的 UUID：
+
+```json
+{"healthkit_uuids":["123e4567-e89b-42d3-a456-426614174000"]}
+```

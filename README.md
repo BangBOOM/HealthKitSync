@@ -72,6 +72,7 @@ Worker 源码位于 `cloudflare/`，提供：
 
 - `GET /health`
 - `POST /v1/activities`（`UPLOAD_TOKEN`）
+- `POST /v1/activities/existence`（`UPLOAD_TOKEN`，批量检查 HealthKit UUID 是否已上传）
 - `GET /v1/activities`（`SYNC_TOKEN`，支持 cursor 分页）
 
 本地验证和部署步骤见 `cloudflare/README.md`。

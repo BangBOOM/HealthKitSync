@@ -1,5 +1,6 @@
 const MAX_BODY_BYTES = 1_900_000;
 const MAX_PAGE_SIZE = 500;
+const MAX_EXISTENCE_UUIDS = 500;
 
 type ActivityInput = {
   schema_version: number;
@@ -39,6 +40,11 @@ export default {
         return await upsertActivity(request, env.DB);
       }
 
+      if (request.method === "POST" && url.pathname === "/v1/activities/existence") {
+        if (!(await isAuthorized(request, env.UPLOAD_TOKEN))) return unauthorized();
+        return await findExistingActivities(request, env.DB);
+      }
+
       if (request.method === "GET" && url.pathname === "/v1/activities") {
         if (!(await isAuthorized(request, env.SYNC_TOKEN))) return unauthorized();
         return await listActivities(url, env.DB);
@@ -59,6 +65,49 @@ export default {
     }
   },
 } satisfies ExportedHandler<Env>;
+
+async function findExistingActivities(request: Request, db: D1Database): Promise<Response> {
+  const contentType = request.headers.get("content-type") ?? "";
+  if (!contentType.toLowerCase().startsWith("application/json")) {
+    return json({ error: "content_type_must_be_json" }, 415);
+  }
+
+  const declaredLength = Number(request.headers.get("content-length") ?? 0);
+  if (declaredLength > MAX_BODY_BYTES) return json({ error: "payload_too_large" }, 413);
+
+  const body = await request.text();
+  if (new TextEncoder().encode(body).byteLength > MAX_BODY_BYTES) {
+    return json({ error: "payload_too_large" }, 413);
+  }
+
+  let value: unknown;
+  try {
+    value = JSON.parse(body);
+  } catch {
+    return json({ error: "invalid_json" }, 400);
+  }
+
+  if (!isRecord(value) || !Array.isArray(value.healthkit_uuids)) {
+    return json({ error: "invalid_healthkit_uuids" }, 422);
+  }
+
+  const requestedUUIDs = value.healthkit_uuids;
+  if (requestedUUIDs.length > MAX_EXISTENCE_UUIDS ||
+      !requestedUUIDs.every((uuid): uuid is string => typeof uuid === "string" && isUUID(uuid))) {
+    return json({ error: "invalid_healthkit_uuids" }, 422);
+  }
+  const uuids = [...new Set(requestedUUIDs)];
+  if (uuids.length === 0) return json({ healthkit_uuids: [] });
+
+  const placeholders = uuids.map((_, index) => `?${index + 1}`).join(", ");
+  const result = await db.prepare(`
+    SELECT healthkit_uuid
+    FROM activities
+    WHERE healthkit_uuid IN (${placeholders})
+  `).bind(...uuids).all<{ healthkit_uuid: string }>();
+
+  return json({ healthkit_uuids: result.results.map((row) => row.healthkit_uuid) });
+}
 
 async function upsertActivity(request: Request, db: D1Database): Promise<Response> {
   const contentType = request.headers.get("content-type") ?? "";

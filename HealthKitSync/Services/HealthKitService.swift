@@ -42,9 +42,9 @@ final class HealthKitService {
             limit: 500
         )
         do {
-            workouts = try await descriptor.result(for: store).map {
-                WorkoutSummary(id: $0.uuid, workout: $0)
-            }
+            workouts = try await descriptor.result(for: store)
+                .filter { $0.workoutActivityType.isSupportedForUpload }
+                .map { WorkoutSummary(id: $0.uuid, workout: $0) }
         } catch {
             errorMessage = error.localizedDescription
         }

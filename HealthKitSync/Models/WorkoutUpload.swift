@@ -34,9 +34,10 @@ struct WorkoutUpload: Encodable, Sendable {
 
 enum UploadStatus: Equatable {
     case idle
+    case checking
+    case alreadyUploaded
     case preparing
     case uploading
     case succeeded
     case failed(String)
 }
-
