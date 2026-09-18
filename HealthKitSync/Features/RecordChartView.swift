@@ -56,15 +56,18 @@ struct RecordChartView: View {
         }
         .chartYScale(domain: 0...max(1, series.maximum * 1.1))
         .chartXAxis {
-            AxisMarks { value in
+            AxisMarks(values: series.days.enumerated().filter { $0.offset % 3 == 0 }.map { $0.element.date }) { value in
                 AxisValueLabel {
-                    if let key = value.as(String.self) { Text(String(key.suffix(5))).font(.caption2) }
+                    if let key = value.as(String.self), let index = series.days.firstIndex(where: { $0.date == key }), index % 3 == 0 { Text(String(key.suffix(2))).font(.caption2) }
                 }
             }
         }
         .chartScrollableAxes(.horizontal)
         .chartXVisibleDomain(length: min(14, max(1, series.days.count)))
         .chartXSelection(value: $selectedDate)
+        .chartGesture { proxy in
+            SpatialTapGesture().onEnded { value in proxy.selectXValue(at: value.location.x) }
+        }
         .frame(height: 200)
     }
 

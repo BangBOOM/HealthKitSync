@@ -83,10 +83,9 @@ struct PersonalRecordsView: View {
 
     private func todayHeader(now: Date) -> some View {
         let today = RecordDate.key(now)
-        let rows = records.rows.filter { $0.performedOn == today }
         return HStack(spacing: 28) {
             ForEach(RecordKind.allCases) { kind in
-                let amount = rows.filter { $0.kind == kind }.reduce(0.0) { $0 + $1.amount }
+                let amount = (try? RecordStatistics.series(rows: records.rows, from: today, to: today, activity: kind).total) ?? 0
                 HStack(spacing: 8) {
                     RecordKindIcon(kind: kind).foregroundStyle(Color.accentColor)
                     Text(RecordStatistics.amount(amount, kind: kind, compact: true)).font(.title3.monospacedDigit().weight(.semibold))
