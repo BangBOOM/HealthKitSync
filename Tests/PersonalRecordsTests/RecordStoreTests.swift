@@ -6,16 +6,24 @@ private actor FixtureTransport: RecordTransport {
     var writes = 0
     var legacyOperationAPI = false
     var entryReads = 0
+    var deleteDropsResponse = false
+    var submittedBody: Data?
     var operations: [String: Data] = [:]
     var entries: [[String: Any]] = []
     let activity: [String: Any] = ["id": "pushups", "slug": "俯卧撑", "label": "俯卧撑", "metricKind": "count", "unit": "reps", "createdAt": "2026-09-19T00:00:00Z"]
 
     func setLegacy(_ value: Bool) { legacyOperationAPI = value }
     func keepResponses() { dropResponse = false }
+    func loseDeleteResponse() { deleteDropsResponse = true }
 
     func request(_ configuration: RecordConfiguration, path: String, method: String, body: Data?, operationID: String?) async throws -> Data {
         if path == "api/activities" { return try JSONSerialization.data(withJSONObject: ["activities": [activity]]) }
         if path == "api/entries" { entryReads += 1; return try JSONSerialization.data(withJSONObject: ["entries": entries]) }
+        if method == "DELETE" {
+            let deleted = entries.removeFirst()
+            if deleteDropsResponse { throw URLError(.networkConnectionLost) }
+            return try JSONSerialization.data(withJSONObject: ["ok": true, "deleted": deleted])
+        }
         if path.hasPrefix("api/operations/") {
             if legacyOperationAPI { throw RecordError.http(404, "Not found") }
             let id = String(path.dropFirst("api/operations/".count))
@@ -25,6 +33,7 @@ private actor FixtureTransport: RecordTransport {
         guard let operationID else { throw RecordError.message("Missing operation ID") }
         if let result = operations[operationID] { return result }
         writes += 1
+        submittedBody = body
         let entry: [String: Any] = ["id": "entry-1", "batchId": "batch-1", "activityId": "pushups", "performedOn": "2026-09-19", "amount": 20, "isEstimated": false, "rawText": "20个俯卧撑", "createdAt": "2026-09-19T00:00:00Z", "updatedAt": "2026-09-19T00:00:00Z"]
         entries = [entry]
         let data = try JSONSerialization.data(withJSONObject: ["entries": [entry]])
@@ -35,6 +44,77 @@ private actor FixtureTransport: RecordTransport {
 }
 
 final class RecordStoreTests: XCTestCase {
+    @MainActor func testLocalDeletionPersistsAndPreservesOtherItemIdentity() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let transport = FixtureTransport()
+        await transport.keepResponses()
+        let config = RecordConfiguration(endpoint: URL(string: "https://delete.invalid")!, token: "test", accessClientID: "", accessClientSecret: "")
+        let store = RecordStore(directory: directory, transport: transport)
+        try store.configure(config)
+        let intents = [RecordIntent(activity: .pushups, amount: 20, performedOn: "2026-09-19"), RecordIntent(activity: .plank, amount: 90, performedOn: "2026-09-19")]
+        let operation = try store.add(intents, rawText: "test", sourceID: "one")
+        try await store.delete(id: operation + ":0")
+        let restored = RecordStore(directory: directory, transport: transport)
+        try restored.configure(config)
+        XCTAssertEqual(restored.rows.map(\.id), [operation + ":1"])
+        XCTAssertEqual(try restored.add(intents, rawText: "test", sourceID: "one"), operation)
+        XCTAssertEqual(restored.rows.count, 1)
+        await restored.sync()
+        let body = await transport.submittedBody
+        let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(body)) as? [String: Any])
+        let entries = try XCTUnwrap(payload["entries"] as? [[String: Any]])
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries[0]["amount"] as? Double, 90)
+    }
+
+    @MainActor func testRemoteDeletionAndLostResponseReconciliation() async throws {
+        for loseResponse in [false, true] {
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let transport = FixtureTransport()
+            await transport.keepResponses()
+            let config = RecordConfiguration(endpoint: URL(string: "https://delete.invalid")!, token: "test", accessClientID: "", accessClientSecret: "")
+            let store = RecordStore(directory: directory, transport: transport)
+            try store.configure(config)
+            _ = try store.add([RecordIntent(activity: .pushups, amount: 20, performedOn: "2026-09-19")], rawText: "test", sourceID: "one")
+            await store.sync()
+            if loseResponse { await transport.loseDeleteResponse() }
+            do {
+                try await store.delete(id: "entry-1")
+                XCTAssertFalse(loseResponse)
+                XCTAssertTrue(store.rows.isEmpty)
+            } catch {
+                XCTAssertTrue(loseResponse)
+                XCTAssertEqual(store.rows.count, 1, "Do not claim deletion before confirmation")
+            }
+            await store.sync()
+            XCTAssertTrue(store.rows.isEmpty)
+            let restored = RecordStore(directory: directory, transport: transport)
+            try restored.configure(config)
+            XCTAssertTrue(restored.rows.isEmpty)
+        }
+    }
+
+    @MainActor func testDeletingLastPendingItemNeverUploadsAfterRestart() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let transport = FixtureTransport()
+        let config = RecordConfiguration(endpoint: URL(string: "https://cancel.invalid")!, token: "test", accessClientID: "", accessClientSecret: "")
+        let store = RecordStore(directory: directory, transport: transport)
+        try store.configure(config)
+        let intents = [RecordIntent(activity: .pushups, amount: 20, performedOn: "2026-09-19")]
+        let id = try store.add(intents, rawText: "test", sourceID: "one")
+        try await store.delete(id: id + ":0")
+        let restored = RecordStore(directory: directory, transport: transport)
+        try restored.configure(config)
+        _ = try restored.add(intents, rawText: "test", sourceID: "one")
+        await restored.sync()
+        XCTAssertTrue(restored.rows.isEmpty)
+        let writes = await transport.writes
+        XCTAssertEqual(writes, 0)
+    }
+
     @MainActor func testLegacyServerRetainsPendingWriteAndRetriesAfterUpgrade() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -97,6 +177,8 @@ final class RecordStoreTests: XCTestCase {
         await first.sync()
         XCTAssertEqual(first.snapshot.operations.first?.state, .inFlight)
         XCTAssertEqual(first.rows.count, 1)
+        do { try await first.delete(id: first.rows[0].id); XCTFail("Unknown writes cannot be deleted") }
+        catch { }
         do { _ = try await first.update(id: first.rows[0].id, amount: 30, performedOn: "2026-09-19", sourceID: "unsafe-update"); XCTFail("Must reconcile before editing") }
         catch { /* expected: the remote outcome is still unknown */ }
         let restored = RecordStore(directory: directory, transport: transport)

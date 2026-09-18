@@ -103,6 +103,8 @@ struct RecordOperation: Codable, Identifiable, Sendable {
     var state: State = .pending
     var response: WriteResponse?
     var error: String?
+    var deletedIndices: [Int]?
+    var activeIntents: [RecordIntent] { intents.enumerated().filter { !(deletedIndices ?? []).contains($0.offset) }.map(\.element) }
     var path: String { targetID.map { "api/entries/" + $0 } ?? "api/records" }
     var method: String { targetID == nil ? "POST" : "PATCH" }
 }

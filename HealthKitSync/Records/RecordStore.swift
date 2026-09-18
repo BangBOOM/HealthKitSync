@@ -58,7 +58,7 @@ final class RecordStore {
             return RecordRow(id: entry.id, kind: kind, amount: entry.amount, performedOn: entry.performedOn, status: operation?.state == .blocked ? "修改失败" : operation != nil ? "修改结果待核对" : "已同步", canEdit: operation == nil && !isSyncing, error: operation?.error)
         }
         let pending = snapshot.operations.filter { $0.state != .complete && $0.targetID == nil }.flatMap { operation in
-            operation.intents.enumerated().map { index, intent in
+            operation.intents.enumerated().filter { !(operation.deletedIndices ?? []).contains($0.offset) }.map { index, intent in
                 RecordRow(id: operation.id + ":" + String(index), kind: intent.activity, amount: intent.amount, performedOn: intent.performedOn, status: operation.state == .blocked ? "同步失败" : operation.state == .inFlight ? "保存结果待核对" : "待同步", canEdit: operation.state == .pending && operation.body == nil && !isSyncing, error: operation.error)
             }
         }
@@ -89,7 +89,7 @@ final class RecordStore {
         // frozen for submission, its idempotency key and contents never change.
         for (operationIndex, operation) in snapshot.operations.enumerated() where operation.targetID == nil {
             if let itemIndex = operation.intents.indices.first(where: { operation.id + ":" + String($0) == id }) {
-                guard operation.state == .pending, operation.body == nil else { throw RecordError.message("保存结果待核对，暂不能修改") }
+                guard operation.state == .pending, operation.body == nil, !(operation.deletedIndices ?? []).contains(itemIndex) else { throw RecordError.message("记录已删除或保存结果待核对，暂不能修改") }
                 let intent = RecordIntent(activity: operation.intents[itemIndex].activity, amount: amount, performedOn: performedOn)
                 try intent.validate()
                 var next = snapshot
@@ -116,6 +116,39 @@ final class RecordStore {
         return operation.id
     }
 
+    func delete(id: String) async throws {
+        guard !isSyncing, activeReads == 0 else { throw RecordError.message("请等待同步完成后删除") }
+        guard let row = rows.first(where: { $0.id == id }), row.canEdit else { throw RecordError.message("记录不存在或保存结果待核对，暂不能删除") }
+        for (index, operation) in snapshot.operations.enumerated() where operation.targetID == nil && operation.state == .pending && operation.body == nil {
+            if let item = operation.intents.indices.first(where: { operation.id + ":" + String($0) == id }) {
+                var next = snapshot
+                next.operations[index].deletedIndices = (operation.deletedIndices ?? []) + [item]
+                if next.operations[index].activeIntents.isEmpty {
+                    next.operations[index].state = .complete
+                    next.operations[index].response = WriteResponse(entries: [], entry: nil, activitiesCreated: nil)
+                }
+                try persist(next)
+                return
+            }
+        }
+        guard let configuration else { throw RecordError.message("请先配置 heatmap 数据服务") }
+        guard !snapshot.operations.contains(where: { $0.state == .inFlight }) else { throw RecordError.message("请先同步核对已有操作，再删除") }
+        // Hold the synchronization lock throughout deletion. Never enqueue an automatic DELETE retry.
+        isSyncing = true
+        defer { isSyncing = false }
+        do {
+            struct Deleted: Decodable { let ok: Bool; let deleted: FitnessEntry }
+            let data = try await transport.request(configuration, path: "api/entries/" + id, method: "DELETE", body: nil, operationID: nil)
+            let result = try JSONDecoder().decode(Deleted.self, from: data)
+            guard result.ok, result.deleted.id == id else { throw RecordError.message("删除响应与目标记录不一致") }
+            var next = snapshot
+            next.entries.removeAll { $0.id == id }
+            try persist(next)
+        } catch {
+            throw RecordError.message("未能确认删除结果：\(error.localizedDescription)。请点“同步记录”核对后再操作。")
+        }
+    }
+
     func refresh() async throws {
         guard let configuration else { throw RecordError.message("请先配置 heatmap 数据服务") }
         guard !snapshot.operations.contains(where: { $0.state == .inFlight }) else { throw RecordError.message("有上传结果待核对，请先同步记录") }
@@ -136,7 +169,7 @@ final class RecordStore {
 
     private func payload(for operation: RecordOperation) throws -> Data {
         if let body = operation.body { return body }
-        let entries: [[String: Any]] = try operation.intents.map { intent in
+        let entries: [[String: Any]] = try operation.activeIntents.map { intent in
             let matches = snapshot.activities.filter { $0.kind == intent.activity }
             guard matches.count <= 1 else { throw RecordError.message("远端有多个\(intent.activity.title)类别，请先在 heatmap 中整理") }
             var entry: [String: Any] = ["amount": intent.amount, "unit": intent.activity.unit, "performedOn": intent.performedOn]
@@ -235,7 +268,7 @@ final class RecordStore {
             let kind = snapshot.activities.first { $0.id == entry.activityId }?.kind
             return ["id": entry.id, "activity": kind?.rawValue ?? "unknown", "amount": entry.amount, "performedOn": entry.performedOn]
         }
-        let pending = operation.intents.map { ["activity": $0.activity.rawValue, "amount": $0.amount, "performedOn": $0.performedOn] as [String: Any] }
+        let pending = operation.activeIntents.map { ["activity": $0.activity.rawValue, "amount": $0.amount, "performedOn": $0.performedOn] as [String: Any] }
         return ["operationID": id, "status": operation.state == .complete ? "saved" : operation.state == .blocked ? "failed" : "pending", "error": operation.error ?? "", "entries": saved ?? pending]
     }
 

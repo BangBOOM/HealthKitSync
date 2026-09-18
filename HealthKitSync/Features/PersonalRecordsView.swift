@@ -6,6 +6,8 @@ struct PersonalRecordsView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @FocusState private var isInputFocused: Bool
     @State private var date = Date()
+    @State private var deletingRow: RecordRow?
+    @State private var deletionError: String?
     @State private var editor: RecordEditorRequest?
     @State private var showingAssistant = false
     @State private var autoSend = false
@@ -65,6 +67,14 @@ struct PersonalRecordsView: View {
                             if row.canEdit { Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary) }
                         }
                     }.disabled(!row.canEdit)
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        if row.canEdit {
+                            Button("删除", systemImage: "trash", role: .destructive) {
+                                isInputFocused = false
+                                deletingRow = row
+                            }
+                        }
+                    }
                 }
             }
             Section {
@@ -80,6 +90,20 @@ struct PersonalRecordsView: View {
         }
         .scrollDismissesKeyboard(.interactively)
         .navigationTitle("记录")
+        .alert("删除这条记录？", isPresented: Binding(get: { deletingRow != nil }, set: { if !$0 { deletingRow = nil } }), presenting: deletingRow) { row in
+            Button("删除", role: .destructive) {
+                Task {
+                    do { try await records.delete(id: row.id) }
+                    catch { deletionError = error.localizedDescription }
+                }
+            }
+            Button("取消", role: .cancel) { }
+        } message: { row in
+            Text("\(row.performedOn) · \(row.kind.title) \(row.amount.formatted()) \(row.kind.unitLabel)\n删除后无法恢复，合计也会相应更新。")
+        }
+        .alert("删除未完成", isPresented: Binding(get: { deletionError != nil }, set: { if !$0 { deletionError = nil } })) {
+            Button("好", role: .cancel) { deletionError = nil }
+        } message: { Text(deletionError ?? "") }
         .toolbar { Button("对话历史", systemImage: "bubble.left.and.bubble.right") { isInputFocused = false; autoSend = false; showingAssistant = true } }
         .refreshable { await records.sync() }
         .safeAreaInset(edge: .bottom) {
