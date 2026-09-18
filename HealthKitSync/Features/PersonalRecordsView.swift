@@ -166,10 +166,11 @@ struct PersonalRecordsView: View {
         .refreshable { await records.sync() }
         .safeAreaInset(edge: .bottom) {
             HStack(alignment: .bottom, spacing: 4) {
+                ResetAssistantButton()
                 TextField("记一句，或问问最近的记录…", text: $assistant.draft, axis: .vertical)
                     .focused($isInputFocused)
                     .lineLimit(1...4)
-                    .padding(.leading, 12).padding(.vertical, 11)
+                    .padding(.vertical, 11)
                 if isInputFocused {
                     Button("收起键盘", systemImage: "keyboard.chevron.compact.down") { isInputFocused = false }
                         .labelStyle(.iconOnly).foregroundStyle(.secondary).frame(minWidth: 44, minHeight: 44)

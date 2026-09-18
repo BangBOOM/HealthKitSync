@@ -43,9 +43,10 @@ struct AssistantPanel: View {
                     .onChange(of: assistant.items.count) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
                 }
                 HStack(alignment: .bottom, spacing: 4) {
+                    ResetAssistantButton()
                     TextField("输入记录、纠正或查询", text: $assistant.draft, axis: .vertical).lineLimit(1...5)
                         .focused($isInputFocused)
-                        .padding(.leading, 12).padding(.vertical, 11)
+                        .padding(.vertical, 11)
                     if isInputFocused {
                         Button("收起键盘", systemImage: "keyboard.chevron.compact.down") { isInputFocused = false }
                             .labelStyle(.iconOnly).foregroundStyle(.secondary).frame(minWidth: 44, minHeight: 44)

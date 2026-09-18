@@ -26,7 +26,7 @@ final class AssistantStore {
         await prepare(records: records)
     }
 
-    private func prepare(records: RecordStore) async {
+    private func prepare(records: RecordStore, loadOnly: Bool = false) async {
         while isOpening {
             do { try await Task.sleep(for: .milliseconds(50)) } catch { return }
         }
@@ -36,7 +36,7 @@ final class AssistantStore {
         do {
             self.records = records
             settings = .load()
-            guard !settings.modelBaseURL.isEmpty, !settings.modelKey.isEmpty, !settings.modelName.isEmpty else {
+            guard loadOnly || (!settings.modelBaseURL.isEmpty && !settings.modelKey.isEmpty && !settings.modelName.isEmpty) else {
                 throw PiError.message("请先在设置中配置模型地址、API Key 和模型名。")
             }
             guard !records.endpointID.isEmpty else { throw PiError.message("请先配置 heatmap 数据服务。") }
@@ -62,6 +62,7 @@ final class AssistantStore {
             }
             if let archiveError { throw PiError.message(archiveError) }
             try rollOverIfNeeded()
+            if loadOnly { return }
             if bridge?.isReady == true { return }
             bridge?.dispose()
             let runtime = PiBridge()
@@ -95,6 +96,27 @@ final class AssistantStore {
         do { try save() } catch { self.error = error.localizedDescription }
     }
 
+    func resetConversation(records: RecordStore) async throws {
+        guard !isBusy else { throw PiError.message("请先停止当前请求再重置对话。") }
+        isBusy = true
+        defer { isBusy = false }
+        // Load the correct persisted conversation even when reset is tapped
+        // from the records page before the assistant panel has been opened.
+        await prepare(records: records, loadOnly: true)
+        if let error { throw PiError.message(error) }
+        guard let file, archiveError == nil else { throw PiError.message("会话尚未就绪") }
+        var next = archive
+        next.draft = draft
+        next.resetConversation(at: Date())
+        try JSONEncoder().encode(next).write(to: file, options: .atomic)
+        archive = next
+        items = []
+        currentReplyID = nil
+        error = nil
+        bridge?.dispose()
+        bridge = nil
+    }
+
     func clearPreviousDayIfNeeded() {
         // Finish an in-flight turn first; the next turn must use the new day.
         guard !isBusy, !isOpening else { return }
@@ -106,10 +128,12 @@ final class AssistantStore {
         guard let file, archiveError == nil else { return }
         var next = archive
         next.draft = draft
-        guard next.rollOver(at: Date()) else { return }
+        let newDay = next.rollOver(at: Date())
+        let newTools = next.refreshToolset()
+        guard newDay || newTools else { return }
         try JSONEncoder().encode(next).write(to: file, options: .atomic)
         archive = next
-        items = []
+        items = next.items
         currentReplyID = nil
         error = nil
         bridge?.dispose()
