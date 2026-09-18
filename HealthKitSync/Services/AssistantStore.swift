@@ -46,7 +46,7 @@ final class AssistantStore {
         saveDraft()
     }
 
-    private func prepare(records: RecordStore, loadOnly: Bool = false) async {
+    private func prepare(records: RecordStore, loadOnly: Bool = false, preserveDraft: Bool = false) async {
         while isOpening {
             do { try await Task.sleep(for: .milliseconds(50)) } catch { return }
         }
@@ -79,7 +79,10 @@ final class AssistantStore {
                 }
                 items = archive.items
                 selectedRecord = archive.selectedRecord
-                draft = initialDraft.isEmpty ? archive.draft : initialDraft
+                if !preserveDraft {
+                    draft = initialDraft.isEmpty ? archive.draft : initialDraft
+                    if draft.isEmpty, archive.pendingQuery == nil { draft = archive.pendingText ?? "" }
+                }
                 UserDefaults.standard.removeObject(forKey: "personalAssistant.unassignedDraft")
             }
             if let archiveError { throw PiError.message(archiveError) }
@@ -180,7 +183,17 @@ final class AssistantStore {
         let version = cancellationVersion
         let text = (textOverride ?? draft).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, text.count <= 4000 else { error = "请输入 1–4000 字的记录或查询"; return }
-        await prepare(records: records)
+        let submittedDraft = textOverride == nil ? draft : nil
+        var completed = false
+        if submittedDraft != nil { draft = "" }
+        defer {
+            if let submittedDraft, !completed {
+                // Keep anything typed while the request was running as well.
+                draft = draft.isEmpty ? submittedDraft : submittedDraft + "\n\n" + draft
+            }
+            saveDraft()
+        }
+        await prepare(records: records, preserveDraft: submittedDraft != nil)
         guard !Task.isCancelled, version == cancellationVersion, error == nil, let bridge, bridge.isReady else { return }
         do {
             var prompt = text
@@ -216,10 +229,8 @@ final class AssistantStore {
             archive.pendingText = nil
             archive.pendingReferenceID = nil
             archive.pendingQuery = nil
-            if textOverride == nil, draft.trimmingCharacters(in: .whitespacesAndNewlines) == text {
-                draft = ""
-                selectedRecord = nil
-            }
+            if submittedDraft != nil { selectedRecord = nil }
+            completed = true
             try save()
         } catch {
             self.error = error.localizedDescription
