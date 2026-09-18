@@ -83,18 +83,19 @@ struct PersonalRecordsView: View {
         .toolbar { Button("对话历史", systemImage: "bubble.left.and.bubble.right") { isInputFocused = false; autoSend = false; showingAssistant = true } }
         .refreshable { await records.sync() }
         .safeAreaInset(edge: .bottom) {
-            HStack(alignment: .bottom, spacing: 12) {
+            HStack(alignment: .bottom, spacing: 4) {
                 TextField("记一句，或问问最近的记录…", text: $assistant.draft, axis: .vertical)
                     .focused($isInputFocused)
-                    .lineLimit(1...4).padding(12).background(.quaternary, in: RoundedRectangle(cornerRadius: 16))
+                    .lineLimit(1...4)
+                    .padding(.leading, 12).padding(.vertical, 11)
                 if isInputFocused {
                     Button("收起键盘", systemImage: "keyboard.chevron.compact.down") { isInputFocused = false }
-                        .labelStyle(.iconOnly).frame(minWidth: 44, minHeight: 44)
+                        .labelStyle(.iconOnly).foregroundStyle(.secondary).frame(minWidth: 44, minHeight: 44)
                 }
                 Button { isInputFocused = false; autoSend = true; showingAssistant = true } label: { Image(systemName: "arrow.up.circle.fill").font(.system(size: 34)).frame(minWidth: 44, minHeight: 44) }
                     .disabled(assistant.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || assistant.isBusy)
                     .accessibilityLabel("发送给助手")
-            }.padding().background(.regularMaterial)
+            }.modifier(RecordComposerSurface())
         }
         .sheet(item: $editor) { request in RecordEditor(request: request) }
         .sheet(isPresented: $showingAssistant) {

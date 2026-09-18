@@ -39,21 +39,21 @@ struct AssistantPanel: View {
                     .scrollDismissesKeyboard(.interactively)
                     .onChange(of: assistant.items.count) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
                 }
-                HStack(alignment: .bottom) {
+                HStack(alignment: .bottom, spacing: 4) {
                     TextField("输入记录、纠正或查询", text: $assistant.draft, axis: .vertical).lineLimit(1...5)
                         .focused($isInputFocused)
-                        .padding(12).background(.quaternary, in: RoundedRectangle(cornerRadius: 14))
+                        .padding(.leading, 12).padding(.vertical, 11)
                     if isInputFocused {
                         Button("收起键盘", systemImage: "keyboard.chevron.compact.down") { isInputFocused = false }
-                            .labelStyle(.iconOnly).frame(minWidth: 44, minHeight: 44)
+                            .labelStyle(.iconOnly).foregroundStyle(.secondary).frame(minWidth: 44, minHeight: 44)
                     }
                     if assistant.isBusy {
-                        Button("停止", systemImage: "stop.circle.fill") { assistant.suspend() }.labelStyle(.iconOnly).font(.title)
+                        Button("停止", systemImage: "stop.circle.fill") { assistant.suspend() }.labelStyle(.iconOnly).font(.system(size: 34)).frame(minWidth: 44, minHeight: 44)
                     } else {
                         Button("发送", systemImage: "arrow.up.circle.fill") { isInputFocused = false; Task { await assistant.send(records: records) } }
-                            .labelStyle(.iconOnly).font(.title).disabled(assistant.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            .labelStyle(.iconOnly).font(.system(size: 34)).frame(minWidth: 44, minHeight: 44).disabled(assistant.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
-                }.padding().background(.regularMaterial)
+                }.modifier(RecordComposerSurface())
                 if let bridge = assistant.bridge {
                     AgentWebView(webView: bridge.webView).id(ObjectIdentifier(bridge)).frame(width: 1, height: 1).opacity(0.01).accessibilityHidden(true)
                 }
