@@ -119,7 +119,12 @@ final class RecordStore {
         return operation.id
     }
 
-    func delete(id: String) async throws {
+    @discardableResult
+    func delete(id: String, sourceID: String? = nil) async throws -> RecordRow {
+        if let sourceID, let receipt = snapshot.deletionReceipts?[sourceID] {
+            guard receipt.id == id else { throw RecordError.message("这次删除请求的目标不一致") }
+            return receipt
+        }
         guard !isSyncing, activeReads == 0 else { throw RecordError.message("请等待同步完成后删除") }
         guard let row = rows.first(where: { $0.id == id }), row.canEdit else { throw RecordError.message("记录不存在或保存结果待核对，暂不能删除") }
         for (index, operation) in snapshot.operations.enumerated() where operation.targetID == nil && operation.state == .pending && operation.body == nil {
@@ -130,8 +135,12 @@ final class RecordStore {
                     next.operations[index].state = .complete
                     next.operations[index].response = WriteResponse(entries: [], entry: nil, activitiesCreated: nil)
                 }
+                if let sourceID {
+                    if next.deletionReceipts == nil { next.deletionReceipts = [:] }
+                    next.deletionReceipts?[sourceID] = row
+                }
                 try persist(next)
-                return
+                return row
             }
         }
         guard let configuration else { throw RecordError.message("请先配置 heatmap 数据服务") }
@@ -147,7 +156,12 @@ final class RecordStore {
             guard result.ok, result.deleted.id == id else { throw RecordError.message("删除响应与目标记录不一致") }
             var next = snapshot
             next.entries.removeAll { $0.id == id }
+            if let sourceID {
+                if next.deletionReceipts == nil { next.deletionReceipts = [:] }
+                next.deletionReceipts?[sourceID] = row
+            }
             try persist(next)
+            return row
         } catch {
             throw RecordError.message("未能确认删除结果：\(error.localizedDescription)。请点“同步记录”核对后再操作。")
         }

@@ -55,6 +55,38 @@ private actor FixtureTransport: RecordTransport {
 }
 
 final class RecordStoreTests: XCTestCase {
+    @MainActor func testAssistantDeletionUsesPersistentReceiptAndRejectsBatch() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let config = RecordConfiguration(endpoint: URL(string: "https://agent-delete.invalid")!, token: "test", accessClientID: "", accessClientSecret: "")
+        let transport = FixtureTransport()
+        await transport.keepResponses()
+        let store = RecordStore(directory: directory, transport: transport)
+        try store.configure(config)
+        _ = try store.add([RecordIntent(activity: .pushups, amount: 20, performedOn: "2026-09-19")], rawText: "test", sourceID: "one")
+        await store.sync()
+        let result = try await RecordToolService.execute(name: "delete_entry", args: ["id": "entry-1"], requestID: "delete-request", rawText: "删除这条", records: store)
+        XCTAssertEqual(result["status"] as? String, "deleted")
+        XCTAssertTrue(store.rows.isEmpty)
+        let restored = RecordStore(directory: directory, transport: transport)
+        try restored.configure(config)
+        let replay = try await RecordToolService.execute(name: "delete_entry", args: ["id": "entry-1"], requestID: "delete-request", rawText: "删除这条", records: restored)
+        XCTAssertEqual(replay["status"] as? String, "deleted")
+        let local = try restored.add([RecordIntent(activity: .plank, amount: 90, performedOn: "2026-09-19")], rawText: "test", sourceID: "two") + ":0"
+        do {
+            _ = try await RecordToolService.execute(name: "delete_entry", args: ["id": local], requestID: "delete-request", rawText: "test", records: restored)
+            XCTFail("A second target in the same input must be rejected")
+        } catch { XCTAssertTrue(error.localizedDescription.contains("一条")) }
+        XCTAssertEqual(restored.rows.count, 1)
+        let deletedLocal = try await RecordToolService.execute(name: "delete_entry", args: ["id": local], requestID: "next-request", rawText: "删除平板", records: restored)
+        XCTAssertEqual(deletedLocal["status"] as? String, "deleted")
+        XCTAssertTrue(restored.rows.isEmpty)
+        do {
+            _ = try await RecordToolService.execute(name: "delete_entry", args: [:], requestID: "invalid", rawText: "test", records: restored)
+            XCTFail("Missing ID must be rejected")
+        } catch { }
+    }
+
     @MainActor func testConcurrentStartupSyncDoesNotRetryAfterTimeout() async throws {
         let transport = WaitingTransport(delay: .milliseconds(100))
         let store = RecordStore(transport: transport)

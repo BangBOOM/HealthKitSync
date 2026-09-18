@@ -94,7 +94,7 @@ private struct ToolResultCard: View {
         VStack(alignment: .leading, spacing: 8) {
             if let result {
                 let status = result["status"] as? String
-                Label(status == "saved" ? "已保存" : status == "pending" ? "已存本机 · 待同步" : status == "failed" ? "保存失败" : "查询结果", systemImage: status == "saved" ? "checkmark.circle.fill" : "list.bullet.rectangle")
+                Label(status == "deleted" ? "已删除" : status == "saved" ? "已保存" : status == "pending" ? "已存本机 · 待同步" : status == "failed" ? "保存失败" : "查询结果", systemImage: status == "deleted" ? "trash.circle.fill" : status == "saved" ? "checkmark.circle.fill" : "list.bullet.rectangle")
                     .font(.subheadline.bold()).foregroundStyle(status == "saved" ? Color.green : Color.accentColor)
                 if let entries = result["entries"] as? [[String: Any]] {
                     ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
@@ -106,7 +106,7 @@ private struct ToolResultCard: View {
                         }
                         Text(entry["performedOn"] as? String ?? "").font(.caption).foregroundStyle(.secondary)
                         if let day = entry["performedOn"] as? String {
-                            Button("在记录页查看与修改") { showDate(day) }.font(.caption)
+                            Button(status == "deleted" ? "查看当天记录" : "在记录页查看与修改") { showDate(day) }.font(.caption)
                         }
                     }
                 }

@@ -24,6 +24,14 @@ enum RecordToolService {
             var result = try records.query(from: from, to: to)
             result["syncError"] = records.error ?? ""
             return result
+        case "delete_entry":
+            guard let id = args["id"] as? String, !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw RecordError.message("删除参数无效，需要真实记录 ID") }
+            let sourceID = requestID + ":delete:" + id
+            if records.snapshot.deletionReceipts?.keys.contains(where: { $0.hasPrefix(requestID + ":delete:") && $0 != sourceID }) == true {
+                throw RecordError.message("每次输入只支持删除一条记录，请另发消息指定下一条。")
+            }
+            let row = try await records.delete(id: id, sourceID: sourceID)
+            return ["status": "deleted", "entries": [["id": row.id, "activity": row.kind.rawValue, "amount": row.amount, "performedOn": row.performedOn]], "error": ""]
         default: throw RecordError.message("不支持的工具")
         }
     }

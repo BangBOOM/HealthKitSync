@@ -66,3 +66,23 @@ test('native transport decodes fragmented UTF-8, clears completion and forwards 
   await assert.rejects(cancelled, { name: 'AbortError' });
   assert.ok(calls.some((message) => message.type === 'fetch_cancel'));
 });
+
+test('Pi exposes deletion and forwards a real target ID to the native bridge', async () => {
+  const calls: Record<string, unknown>[] = [];
+  const fetch: typeof globalThis.fetch = async (_url, init) => {
+    const body = JSON.parse(String(init?.body));
+    assert.ok(body.tools.some((tool: { function: { name: string } }) => tool.function.name === 'delete_entry'));
+    if (body.messages.at(-1)?.role === 'tool') return response({ content: '已删除。' }, 'stop');
+    return response({ tool_calls: [{ index: 0, id: 'delete-1', type: 'function', function: { name: 'delete_entry', arguments: JSON.stringify({ id: 'record-1' }) } }] }, 'tool_calls');
+  };
+  const runtime = new Runtime({ baseURL: 'https://fixture.invalid/v1', model: 'test', today: '2026-09-19', sessionID: 'delete-test' }, [], fetch, async (message) => {
+    calls.push(structuredClone(message));
+    return message.type === 'tool' ? { status: 'deleted', entries: [{ id: 'record-1' }] } : { ok: true };
+  });
+  await runtime.prompt('删除 record-1', 'delete-request');
+  const toolCalls = calls.filter((call) => call.type === 'tool');
+  assert.equal(toolCalls.length, 1);
+  assert.equal(toolCalls[0].name, 'delete_entry');
+  assert.deepEqual(toolCalls[0].args, { id: 'record-1' });
+  assert.equal(toolCalls[0].operationID, 'delete-request:delete-1');
+});

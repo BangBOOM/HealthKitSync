@@ -68,7 +68,7 @@ struct RecordIntent: Codable, Sendable, Equatable {
     }
 }
 
-struct RecordRow: Identifiable {
+struct RecordRow: Codable, Identifiable {
     let id: String
     let kind: RecordKind
     let amount: Double
@@ -114,6 +114,7 @@ struct RecordSnapshot: Codable {
     var entries: [FitnessEntry] = []
     var operations: [RecordOperation] = []
     var refreshedAt: Date?
+    var deletionReceipts: [String: RecordRow]?
 }
 
 enum RecordError: LocalizedError {
