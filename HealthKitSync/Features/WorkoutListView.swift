@@ -5,7 +5,7 @@ struct WorkoutListView: View {
     @Environment(UploadHistoryService.self) private var uploadHistory
     @State private var selected = Set<UUID>()
     @State private var statuses: [UUID: UploadStatus] = [:]
-    @State private var showingSettings = false
+    @State private var showingMissingConfiguration = false
     @State private var isUploading = false
     @State private var selectedCategory = WorkoutCategory.cycling
 
@@ -64,17 +64,16 @@ struct WorkoutListView: View {
         }
         .navigationTitle("选择运动")
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Button("设置", systemImage: "gear") { showingSettings = true }
-            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button("上传 \(selected.count) 项") { Task { await uploadSelection() } }
                     .disabled(selected.isEmpty || isUploading)
             }
         }
-        .sheet(isPresented: $showingSettings, onDismiss: {
-            Task { await syncUploadHistory() }
-        }) { SettingsView() }
+        .alert("请先配置健康上传", isPresented: $showingMissingConfiguration) {
+            Button("好", role: .cancel) { }
+        } message: {
+            Text("请前往底部的「设置」页面，打开「健康运动上传设置」填写服务地址和 Token。")
+        }
         .task { await reload() }
     }
 
@@ -99,7 +98,7 @@ struct WorkoutListView: View {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard let endpoint = URL(string: KeychainStore.read(account: "endpoint")),
               !token.isEmpty else {
-            showingSettings = true
+            showingMissingConfiguration = true
             return
         }
         isUploading = true

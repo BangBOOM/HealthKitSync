@@ -8,6 +8,7 @@ struct AssistantPanel: View {
     let autoSend: Bool
     let showDate: (String) -> Void
     @State private var started = false
+    @FocusState private var isInputFocused: Bool
 
     var body: some View {
         @Bindable var assistant = assistant
@@ -35,15 +36,21 @@ struct AssistantPanel: View {
                             Color.clear.frame(height: 1).id("bottom")
                         }.padding()
                     }
+                    .scrollDismissesKeyboard(.interactively)
                     .onChange(of: assistant.items.count) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
                 }
                 HStack(alignment: .bottom) {
                     TextField("输入记录、纠正或查询", text: $assistant.draft, axis: .vertical).lineLimit(1...5)
+                        .focused($isInputFocused)
                         .padding(12).background(.quaternary, in: RoundedRectangle(cornerRadius: 14))
+                    if isInputFocused {
+                        Button("收起键盘", systemImage: "keyboard.chevron.compact.down") { isInputFocused = false }
+                            .labelStyle(.iconOnly).frame(minWidth: 44, minHeight: 44)
+                    }
                     if assistant.isBusy {
                         Button("停止", systemImage: "stop.circle.fill") { assistant.suspend() }.labelStyle(.iconOnly).font(.title)
                     } else {
-                        Button("发送", systemImage: "arrow.up.circle.fill") { Task { await assistant.send(records: records) } }
+                        Button("发送", systemImage: "arrow.up.circle.fill") { isInputFocused = false; Task { await assistant.send(records: records) } }
                             .labelStyle(.iconOnly).font(.title).disabled(assistant.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
                 }.padding().background(.regularMaterial)
@@ -60,7 +67,7 @@ struct AssistantPanel: View {
             await assistant.open(records: records)
             if autoSend { await assistant.send(records: records) }
         }
-        .onDisappear { assistant.suspend() }
+        .onDisappear { isInputFocused = false; assistant.suspend() }
         .onChange(of: assistant.draft) { _, _ in assistant.saveDraft() }
     }
 }
