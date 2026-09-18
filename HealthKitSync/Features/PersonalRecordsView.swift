@@ -106,10 +106,16 @@ struct PersonalRecordsView: View {
                     .modifier(SwipeAwayRecord(enabled: row.canEdit && deletingID == nil) {
                         delete(row)
                     })
+                    .overlay(alignment: .bottom) {
+                        if row.id != visibleRows.last?.id {
+                            Divider().offset(y: 12).allowsHitTesting(false)
+                        }
+                    }
                 }
             }
-            .listRowBackground(Color(uiColor: .secondarySystemGroupedBackground))
-            .listRowSeparator(.visible)
+            .listRowInsets(EdgeInsets(top: 12, leading: 36, bottom: 12, trailing: 36))
+            .listRowBackground(Color(uiColor: .secondarySystemGroupedBackground).padding(.horizontal, 20))
+            .listRowSeparator(.hidden)
             Section {
                 if let error = records.error { Label(error, systemImage: "exclamationmark.icloud").font(.caption).foregroundStyle(.orange) }
                 if let refreshed = records.snapshot.refreshedAt {
