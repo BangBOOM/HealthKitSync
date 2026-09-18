@@ -80,6 +80,8 @@ struct PersonalRecordsView: View {
             Section("当日明细") {
                 if visibleRows.isEmpty {
                     ContentUnavailableView("还没有记录", systemImage: "square.and.pencil", description: Text("点上方卡片填写，或在下方输入一句话。"))
+                        .padding(16)
+                        .background(Color(uiColor: .secondarySystemGroupedBackground))
                 }
                 ForEach(visibleRows) { row in
                     Button {
@@ -102,19 +104,24 @@ struct PersonalRecordsView: View {
                                 if deletingID == row.id { ProgressView().controlSize(.small) }
                             }.frame(width: 16)
                         }
-                    }.disabled(!row.canEdit || deletingID != nil)
+                    }.buttonStyle(.plain)
+                    .disabled(!row.canEdit || deletingID != nil)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color(uiColor: .secondarySystemGroupedBackground))
+                    .overlay(alignment: .bottom) {
+                        if row.id != visibleRows.last?.id {
+                            Divider().padding(.horizontal, 16).allowsHitTesting(false)
+                        }
+                    }
                     .modifier(SwipeAwayRecord(enabled: row.canEdit && deletingID == nil) {
                         delete(row)
                     })
-                    .overlay(alignment: .bottom) {
-                        if row.id != visibleRows.last?.id {
-                            Divider().offset(y: 12).allowsHitTesting(false)
-                        }
-                    }
                 }
             }
-            .listRowInsets(EdgeInsets(top: 12, leading: 36, bottom: 12, trailing: 36))
-            .listRowBackground(Color(uiColor: .secondarySystemGroupedBackground).padding(.horizontal, 20))
+            .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
+            .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)
             Section {
                 if let error = records.error { Label(error, systemImage: "exclamationmark.icloud").font(.caption).foregroundStyle(.orange) }
