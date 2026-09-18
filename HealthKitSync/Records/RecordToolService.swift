@@ -20,8 +20,13 @@ enum RecordToolService {
             return try records.operationResult(operation)
         case "query_entries":
             guard let from = args["from"] as? String, let to = args["to"] as? String else { throw RecordError.message("查询参数无效") }
+            let activity = (args["activity"] as? String).flatMap(RecordKind.init(rawValue:))
+            let presentation = (args["presentation"] as? String).flatMap(RecordPresentation.init(rawValue:)) ?? .list
+            guard args["activity"] == nil || activity != nil,
+                  args["presentation"] == nil || (args["presentation"] as? String).flatMap(RecordPresentation.init(rawValue:)) != nil else { throw RecordError.message("查询类别或展示方式无效") }
+            guard RecordDate.date(from) != nil, RecordDate.date(to) != nil, from <= to else { throw RecordError.message("查询日期范围无效") }
             await records.sync()
-            var result = try records.query(from: from, to: to)
+            var result = try records.query(from: from, to: to, activity: activity, presentation: presentation)
             result["syncError"] = records.error ?? ""
             return result
         case "delete_entry":

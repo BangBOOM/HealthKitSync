@@ -315,9 +315,17 @@ final class RecordStore {
         return ["operationID": id, "status": operation.state == .complete ? "saved" : operation.state == .blocked ? "failed" : "pending", "error": operation.error ?? "", "entries": saved ?? pending]
     }
 
-    func query(from: String, to: String) throws -> [String: Any] {
+    func query(from: String, to: String, activity: RecordKind? = nil, presentation: RecordPresentation = .list) throws -> [String: Any] {
         guard RecordDate.date(from) != nil, RecordDate.date(to) != nil, from <= to else { throw RecordError.message("查询日期范围无效") }
-        let matches = rows.filter { $0.performedOn >= from && $0.performedOn <= to }
-        return ["from": from, "to": to, "cachedAt": snapshot.refreshedAt?.ISO8601Format() ?? "尚未同步", "entries": matches.map { ["id": $0.id, "activity": $0.kind.rawValue, "amount": $0.amount, "performedOn": $0.performedOn, "status": $0.status] as [String: Any] }, "totals": Dictionary(uniqueKeysWithValues: RecordKind.allCases.map { kind in (kind.rawValue, matches.filter { $0.kind == kind }.reduce(0) { $0 + $1.amount }) })]
+        let matches = rows.filter { $0.performedOn >= from && $0.performedOn <= to && (activity == nil || $0.kind == activity) }
+        let kinds = activity.map { [$0] } ?? RecordKind.allCases
+        var result: [String: Any] = ["from": from, "to": to, "presentation": presentation.rawValue, "queriedAt": Date().ISO8601Format(), "cachedAt": snapshot.refreshedAt?.ISO8601Format() ?? "尚未同步", "entries": matches.map { ["id": $0.id, "activity": $0.kind.rawValue, "amount": $0.amount, "performedOn": $0.performedOn, "status": $0.status] as [String: Any] }, "totals": Dictionary(uniqueKeysWithValues: kinds.map { kind in (kind.rawValue, matches.filter { $0.kind == kind }.reduce(0) { $0 + $1.amount }) })]
+        if let activity { result["activity"] = activity.rawValue }
+        if presentation != .list {
+            let series = try kinds.map { try RecordStatistics.series(rows: matches, from: from, to: to, activity: $0) }
+            let chart = RecordVisualization(from: from, to: to, presentation: presentation, series: series)
+            result["visualization"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(chart))
+        }
+        return result
     }
 }
