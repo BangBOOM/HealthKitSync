@@ -17,33 +17,51 @@ struct PersonalRecordsView: View {
     private var dateKey: String { RecordDate.key(date) }
     private var rows: [RecordRow] { records.rows.filter { $0.performedOn == dateKey } }
 
+    private func total(for kind: RecordKind) -> String {
+        let amount = rows.filter { $0.kind == kind }.reduce(0.0) { $0 + $1.amount }
+        return amount.formatted(.number.precision(.fractionLength(0...2)))
+    }
+
+    private var summaryCard: some View {
+        VStack(spacing: 12) {
+            DatePicker("记录日期", selection: $date, displayedComponents: .date)
+                .environment(\.calendar, RecordDate.calendar)
+                .environment(\.timeZone, RecordDate.calendar.timeZone)
+            Divider()
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(minimum: 0), spacing: 12), count: dynamicTypeSize.isAccessibilitySize ? 1 : 2), spacing: 12) {
+                ForEach(RecordKind.allCases) { kind in
+                    Button {
+                        isInputFocused = false
+                        editor = RecordEditorRequest(kind: kind, date: dateKey)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Label { Text(kind.title) } icon: { RecordKindIcon(kind: kind) }.font(.subheadline)
+                                .lineLimit(1).minimumScaleFactor(0.85)
+                            Text(total(for: kind))
+                                .font(.system(.largeTitle, design: .rounded).bold())
+                                .lineLimit(1).minimumScaleFactor(0.5)
+                            HStack { Text(kind.unitLabel); Spacer(); Image(systemName: "plus.circle.fill") }
+                                .font(.subheadline).foregroundStyle(.secondary)
+                        }
+                        .padding(14).frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+                        .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 16))
+                    }.buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(16)
+        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .padding(.horizontal, 20)
+        .listRowInsets(EdgeInsets())
+        .listRowBackground(Color.clear)
+        .listRowSeparator(.hidden)
+    }
+
     var body: some View {
         @Bindable var assistant = assistant
         List {
             Section {
-                DatePicker("记录日期", selection: $date, displayedComponents: .date)
-                    .environment(\.calendar, RecordDate.calendar)
-                    .environment(\.timeZone, RecordDate.calendar.timeZone)
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(minimum: 0), spacing: 12), count: dynamicTypeSize.isAccessibilitySize ? 1 : 2), spacing: 12) {
-                    ForEach(RecordKind.allCases) { kind in
-                        Button {
-                            isInputFocused = false
-                            editor = RecordEditorRequest(kind: kind, date: dateKey)
-                        } label: {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Label { Text(kind.title) } icon: { RecordKindIcon(kind: kind) }.font(.subheadline)
-                                    .lineLimit(1).minimumScaleFactor(0.85)
-                                Text(rows.filter { $0.kind == kind }.reduce(0) { $0 + $1.amount }.formatted(.number.precision(.fractionLength(0...2))))
-                                    .font(.system(.largeTitle, design: .rounded).bold())
-                                    .lineLimit(1).minimumScaleFactor(0.5)
-                                HStack { Text(kind.unitLabel); Spacer(); Image(systemName: "plus.circle.fill") }
-                                    .font(.subheadline).foregroundStyle(.secondary)
-                            }
-                            .padding(14).frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
-                            .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 16))
-                        }.buttonStyle(.plain)
-                    }
-                }.listRowInsets(.init(top: 12, leading: 16, bottom: 12, trailing: 16))
+                summaryCard
             } footer: {
                 if rows.contains(where: { $0.status != "已同步" }) { Text("合计包含本机待同步记录；上传结果待核对时保留上次缓存。") }
             }
@@ -86,6 +104,8 @@ struct PersonalRecordsView: View {
                     }
                 }
             }
+            .listRowBackground(Color(uiColor: .secondarySystemGroupedBackground))
+            .listRowSeparator(.visible)
             Section {
                 if let error = records.error { Label(error, systemImage: "exclamationmark.icloud").font(.caption).foregroundStyle(.orange) }
                 if let refreshed = records.snapshot.refreshedAt {
@@ -97,6 +117,7 @@ struct PersonalRecordsView: View {
                 if records.endpointID.isEmpty { Text("请在设置中连接 heatmap 数据服务。").font(.caption).foregroundStyle(.secondary) }
             }
         }
+        .listStyle(.grouped)
         // The actual data change happens after an async response, outside the
         // swipe transaction. Animate only membership changes, not sync status.
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: rows.map(\.id))
