@@ -124,24 +124,34 @@ struct PersonalRecordsView: View {
             .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)
             Section {
-                if let error = records.error { Label(error, systemImage: "exclamationmark.icloud").font(.caption).foregroundStyle(.orange) }
-                if let refreshed = records.snapshot.refreshedAt {
-                    Text("缓存更新于 \(refreshed.formatted(date: .abbreviated, time: .shortened))").font(.caption).foregroundStyle(.secondary)
-                }
-                if records.isSyncing {
-                    HStack {
-                        ProgressView()
-                        Text(records.syncStatus).font(.subheadline)
-                        Spacer()
-                        if records.canCancelSync {
-                            Button("停止") { records.cancelSync() }
-                        }
+                VStack(alignment: .leading, spacing: 14) {
+                    if let error = records.error { Label(error, systemImage: "exclamationmark.icloud").font(.caption).foregroundStyle(.orange) }
+                    if let refreshed = records.snapshot.refreshedAt {
+                        Text("缓存更新于 \(refreshed.formatted(date: .abbreviated, time: .shortened))").font(.caption).foregroundStyle(.secondary)
                     }
-                } else {
-                    Button("同步记录") { Task { await records.sync() } }
+                    if records.isSyncing {
+                        HStack {
+                            ProgressView()
+                            Text(records.syncStatus).font(.subheadline)
+                            Spacer()
+                            if records.canCancelSync {
+                                Button("停止") { records.cancelSync() }
+                            }
+                        }
+                    } else {
+                        Button { Task { await records.sync() } } label: {
+                            Text("同步记录").frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                        }
                         .disabled(records.endpointID.isEmpty)
+                    }
+                    if records.endpointID.isEmpty { Text("请在设置中连接 heatmap 数据服务。").font(.caption).foregroundStyle(.secondary) }
                 }
-                if records.endpointID.isEmpty { Text("请在设置中连接 heatmap 数据服务。").font(.caption).foregroundStyle(.secondary) }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
+                .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+                .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
             }
         }
         .listStyle(.grouped)
