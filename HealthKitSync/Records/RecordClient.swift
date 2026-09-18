@@ -9,7 +9,7 @@ struct HTTPRecordTransport: RecordTransport {
         var request = URLRequest(url: configuration.endpoint.appendingPathComponent(path))
         request.httpMethod = method
         request.httpBody = body
-        request.timeoutInterval = 25
+        request.timeoutInterval = 15
         request.setValue("Bearer \(configuration.token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if body != nil { request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
@@ -18,7 +18,11 @@ struct HTTPRecordTransport: RecordTransport {
             request.setValue(configuration.accessClientID, forHTTPHeaderField: "CF-Access-Client-Id")
             request.setValue(configuration.accessClientSecret, forHTTPHeaderField: "CF-Access-Client-Secret")
         }
-        let session = URLSession(configuration: .ephemeral, delegate: RecordRedirectBlocker(), delegateQueue: nil)
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.timeoutIntervalForRequest = 15
+        sessionConfiguration.timeoutIntervalForResource = 30
+        sessionConfiguration.waitsForConnectivity = false
+        let session = URLSession(configuration: sessionConfiguration, delegate: RecordRedirectBlocker(), delegateQueue: nil)
         defer { session.finishTasksAndInvalidate() }
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw RecordError.message("数据服务响应无效") }

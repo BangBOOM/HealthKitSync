@@ -7,6 +7,8 @@ import Observation
 final class RecordStore {
     private(set) var snapshot = RecordSnapshot()
     private(set) var isSyncing = false
+    private(set) var syncStatus = ""
+    var canCancelSync: Bool { syncTask != nil }
     private(set) var error: String?
     private(set) var endpointID = ""
     @ObservationIgnored private var configuration: RecordConfiguration?
@@ -16,6 +18,7 @@ final class RecordStore {
     @ObservationIgnored private var storageError: String?
     @ObservationIgnored private var activeReads = 0
     @ObservationIgnored private var syncAgain = false
+    private var syncTask: Task<Void, Never>?
 
     init(directory: URL? = nil, transport: any RecordTransport = HTTPRecordTransport()) {
         self.directory = directory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("PersonalRecords")
@@ -135,7 +138,8 @@ final class RecordStore {
         guard !snapshot.operations.contains(where: { $0.state == .inFlight }) else { throw RecordError.message("请先同步核对已有操作，再删除") }
         // Hold the synchronization lock throughout deletion. Never enqueue an automatic DELETE retry.
         isSyncing = true
-        defer { isSyncing = false }
+        syncStatus = "正在删除记录…"
+        defer { isSyncing = false; syncStatus = "" }
         do {
             struct Deleted: Decodable { let ok: Bool; let deleted: FitnessEntry }
             let data = try await transport.request(configuration, path: "api/entries/" + id, method: "DELETE", body: nil, operationID: nil)
@@ -181,21 +185,36 @@ final class RecordStore {
     }
 
     func sync() async {
+        if let syncTask { syncAgain = true; await syncTask.value; return }
         if isSyncing { syncAgain = true; return }
+        let task = Task { await performSync() }
+        syncTask = task
+        await task.value
+        syncTask = nil
+        let needsAnotherPass = syncAgain && error == nil && snapshot.operations.contains { $0.state == .pending }
+        syncAgain = false
+        if needsAnotherPass { await sync() }
+    }
+
+    func cancelSync() {
+        syncAgain = false
+        syncTask?.cancel()
+    }
+
+    private func performSync() async {
         guard activeReads == 0, let configuration, storageError == nil else { return }
         isSyncing = true
         error = nil
         defer {
             isSyncing = false
-            if syncAgain {
-                syncAgain = false
-                Task { await sync() }
-            }
+            syncStatus = ""
         }
         do {
             // Read category IDs before freezing requests, but reconcile unknown writes
             // before replacing the entry cache so provisional rows cannot be counted twice.
             struct Activities: Decodable { let activities: [FitnessActivity] }
+            try Task.checkCancellation()
+            syncStatus = "正在连接数据服务…"
             let activityData = try await transport.request(configuration, path: "api/activities", method: "GET", body: nil, operationID: nil)
             var categorized = snapshot
             categorized.activities = try JSONDecoder().decode(Activities.self, from: activityData).activities
@@ -204,6 +223,7 @@ final class RecordStore {
                 try Task.checkCancellation()
                 do {
                     var result: WriteResponse?
+                    syncStatus = "正在核对保存结果…"
                     do {
                         struct Receipt: Decodable { let response: WriteResponse }
                         let receipt = try await transport.request(configuration, path: "api/operations/" + operation.id, method: "GET", body: nil, operationID: nil)
@@ -223,6 +243,7 @@ final class RecordStore {
                         next.operations[index].state = .inFlight
                         next.operations[index].error = nil
                         try persist(next) // freeze before sending; retries reuse identical bytes
+                        syncStatus = "正在上传待同步记录…"
                         let data = try await transport.request(configuration, path: operation.path, method: operation.method, body: body, operationID: operation.id)
                         result = try JSONDecoder().decode(WriteResponse.self, from: data)
                     }
@@ -236,6 +257,8 @@ final class RecordStore {
                     throw error
                 }
             }
+            try Task.checkCancellation()
+            syncStatus = "正在读取记录…"
             try await refresh()
         } catch {
             // An old server can still provide existing records. Refresh only
@@ -244,7 +267,13 @@ final class RecordStore {
                !snapshot.operations.contains(where: { $0.state == .inFlight }) {
                 try? await refresh()
             }
-            self.error = error.localizedDescription
+            if error is CancellationError || (error as? URLError)?.code == .cancelled {
+                self.error = "已停止同步，本机记录已保留。稍后可重新同步核对结果。"
+            } else if (error as? URLError)?.code == .timedOut {
+                self.error = "连接数据服务超时，请检查网络后重试。本机记录已保留。"
+            } else {
+                self.error = error.localizedDescription
+            }
         }
     }
 

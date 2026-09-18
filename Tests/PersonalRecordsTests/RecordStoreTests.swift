@@ -1,6 +1,17 @@
 import XCTest
 @testable import PersonalRecords
 
+private actor WaitingTransport: RecordTransport {
+    var calls = 0
+    let delay: Duration
+    init(delay: Duration) { self.delay = delay }
+    func request(_ configuration: RecordConfiguration, path: String, method: String, body: Data?, operationID: String?) async throws -> Data {
+        calls += 1
+        try await Task.sleep(for: delay)
+        throw URLError(.timedOut)
+    }
+}
+
 private actor FixtureTransport: RecordTransport {
     var dropResponse = true
     var writes = 0
@@ -44,6 +55,35 @@ private actor FixtureTransport: RecordTransport {
 }
 
 final class RecordStoreTests: XCTestCase {
+    @MainActor func testConcurrentStartupSyncDoesNotRetryAfterTimeout() async throws {
+        let transport = WaitingTransport(delay: .milliseconds(100))
+        let store = RecordStore(transport: transport)
+        try store.configure(RecordConfiguration(endpoint: URL(string: "https://timeout.invalid")!, token: "test", accessClientID: "", accessClientSecret: ""))
+        let first = Task { await store.sync() }
+        while !store.isSyncing { await Task.yield() }
+        await store.sync()
+        await first.value
+        XCTAssertFalse(store.isSyncing)
+        XCTAssertFalse(store.canCancelSync)
+        XCTAssertTrue(store.error?.contains("超时") == true)
+        let calls = await transport.calls
+        XCTAssertEqual(calls, 1)
+    }
+
+    @MainActor func testCancelStalledSyncReleasesState() async throws {
+        let transport = WaitingTransport(delay: .seconds(300))
+        let store = RecordStore(transport: transport)
+        try store.configure(RecordConfiguration(endpoint: URL(string: "https://cancel-sync.invalid")!, token: "test", accessClientID: "", accessClientSecret: ""))
+        let work = Task { await store.sync() }
+        while !store.isSyncing { await Task.yield() }
+        store.cancelSync()
+        await work.value
+        XCTAssertFalse(store.isSyncing)
+        XCTAssertFalse(store.canCancelSync)
+        XCTAssertEqual(store.syncStatus, "")
+        XCTAssertTrue(store.error?.contains("已停止") == true)
+    }
+
     @MainActor func testLocalDeletionPersistsAndPreservesOtherItemIdentity() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }

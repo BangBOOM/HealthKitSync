@@ -121,9 +121,19 @@ struct PersonalRecordsView: View {
                 if let refreshed = records.snapshot.refreshedAt {
                     Text("缓存更新于 \(refreshed.formatted(date: .abbreviated, time: .shortened))").font(.caption).foregroundStyle(.secondary)
                 }
-                Button { Task { await records.sync() } } label: {
-                    HStack { Text("同步记录"); Spacer(); if records.isSyncing { ProgressView() } }
-                }.disabled(records.isSyncing || records.endpointID.isEmpty)
+                if records.isSyncing {
+                    HStack {
+                        ProgressView()
+                        Text(records.syncStatus).font(.subheadline)
+                        Spacer()
+                        if records.canCancelSync {
+                            Button("停止") { records.cancelSync() }
+                        }
+                    }
+                } else {
+                    Button("同步记录") { Task { await records.sync() } }
+                        .disabled(records.endpointID.isEmpty)
+                }
                 if records.endpointID.isEmpty { Text("请在设置中连接 heatmap 数据服务。").font(.caption).foregroundStyle(.secondary) }
             }
         }
