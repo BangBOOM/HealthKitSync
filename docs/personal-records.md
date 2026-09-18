@@ -113,6 +113,14 @@ PERSONAL_RECORDS_TEST_URL=http://127.0.0.1:18787 swift test
 2. App 填测试 heatmap 和真实模型配置，完成上述待验收项。重点测试“今天一共 20 个”应查询/澄清，“又做了 20 个”应新增，以及鉴权错误、断网和前后台切换。
 3. 验收通过后再安排生产数据库备份、迁移和 Worker 发布，然后发布 App。保持原 HealthKit Worker 配置和凭据不变。
 
+## 同步报 `404 Not found`
+
+如果 `/api/activities` 正常，但 `/api/operations/<操作 ID>` 返回 `404 Not found`，说明线上 Worker 缺少新版操作核对接口。2026-09-19 已在现有服务上复现此情况，Access 验证通过；重复填写凭据不能补齐后端接口。
+
+App 现在会明确提示服务需要升级。未提交的记录继续保存在本机，仍可读取旧服务的已有记录；如果某笔写入结果未知则保持原缓存，以免重复计数。待后端迁移和发布完成后，点「同步记录」会使用原操作 ID 重试，不需要重新录入。
+
+新增两个回归测试验证旧服务下不会发送写请求、记录重启后仍保留、升级后只提交一次，以及服务回滚时不会重复合并未知写入。后端发布需包含 `0002_write_operations.sql` 和对应 Worker，两者缺一不可。
+
 不在本版范围：本地模型推理、后台持续 Agent、独立语音、计时器、任意 Skills、批量删除。对话不自动压缩，长会话超出模型上下文时会显示模型错误；正式长期使用前可追加会话管理功能。
 
 参考：[Pi SDK](https://pi.dev/docs/latest/sdk)、[锁定版本源码](https://github.com/earendil-works/pi/tree/v0.85.1)、[D1 batch](https://developers.cloudflare.com/d1/worker-api/d1-database/#batch)。

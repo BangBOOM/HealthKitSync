@@ -177,6 +177,10 @@ final class RecordStore {
                         result = try JSONDecoder().decode(Receipt.self, from: receipt).response
                     } catch RecordError.http(404, "operation_not_found") {
                         // Only this exact response proves that the idempotency API is present.
+                    } catch RecordError.http(404, _) {
+                        throw RecordError.backendUpgradeRequired
+                    } catch RecordError.http(500, let message) where message.lowercased().contains("no such table: write_operations") {
+                        throw RecordError.backendUpgradeRequired
                     }
                     if result == nil {
                         let body = try payload(for: operation)
@@ -200,7 +204,15 @@ final class RecordStore {
                 }
             }
             try await refresh()
-        } catch { self.error = error.localizedDescription }
+        } catch {
+            // An old server can still provide existing records. Refresh only
+            // when no submitted write has an unknown result, to avoid duplicates.
+            if case RecordError.backendUpgradeRequired = error,
+               !snapshot.operations.contains(where: { $0.state == .inFlight }) {
+                try? await refresh()
+            }
+            self.error = error.localizedDescription
+        }
     }
 
     private func complete(_ id: String, result: WriteResponse) throws {

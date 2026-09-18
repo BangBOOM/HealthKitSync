@@ -118,10 +118,12 @@ struct RecordSnapshot: Codable {
 enum RecordError: LocalizedError {
     case message(String)
     case http(Int, String)
+    case backendUpgradeRequired
     var errorDescription: String? {
         switch self {
         case .message(let message): message
         case .http(let status, let message): "HTTP \(status)：\(message)"
+        case .backendUpgradeRequired: "heatmap 服务尚未升级，缺少操作核对接口或数据表。请先部署新版服务及数据库迁移。待同步记录已保存在本机，升级后点“同步记录”即可重试。"
         }
     }
 }

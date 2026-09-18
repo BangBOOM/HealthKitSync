@@ -4,14 +4,20 @@ import XCTest
 private actor FixtureTransport: RecordTransport {
     var dropResponse = true
     var writes = 0
+    var legacyOperationAPI = false
+    var entryReads = 0
     var operations: [String: Data] = [:]
     var entries: [[String: Any]] = []
     let activity: [String: Any] = ["id": "pushups", "slug": "俯卧撑", "label": "俯卧撑", "metricKind": "count", "unit": "reps", "createdAt": "2026-09-19T00:00:00Z"]
 
+    func setLegacy(_ value: Bool) { legacyOperationAPI = value }
+    func keepResponses() { dropResponse = false }
+
     func request(_ configuration: RecordConfiguration, path: String, method: String, body: Data?, operationID: String?) async throws -> Data {
         if path == "api/activities" { return try JSONSerialization.data(withJSONObject: ["activities": [activity]]) }
-        if path == "api/entries" { return try JSONSerialization.data(withJSONObject: ["entries": entries]) }
+        if path == "api/entries" { entryReads += 1; return try JSONSerialization.data(withJSONObject: ["entries": entries]) }
         if path.hasPrefix("api/operations/") {
+            if legacyOperationAPI { throw RecordError.http(404, "Not found") }
             let id = String(path.dropFirst("api/operations/".count))
             guard let data = operations[id] else { throw RecordError.http(404, "operation_not_found") }
             return try JSONSerialization.data(withJSONObject: ["response": JSONSerialization.jsonObject(with: data)])
@@ -29,6 +35,54 @@ private actor FixtureTransport: RecordTransport {
 }
 
 final class RecordStoreTests: XCTestCase {
+    @MainActor func testLegacyServerRetainsPendingWriteAndRetriesAfterUpgrade() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let transport = FixtureTransport()
+        await transport.setLegacy(true)
+        let config = RecordConfiguration(endpoint: URL(string: "https://legacy.invalid")!, token: "test", accessClientID: "", accessClientSecret: "")
+        let store = RecordStore(directory: directory, transport: transport)
+        try store.configure(config)
+        let id = try store.add([RecordIntent(activity: .pushups, amount: 20, performedOn: "2026-09-19")], rawText: "20个俯卧撑", sourceID: "legacy-request")
+        await store.sync()
+        XCTAssertTrue(store.error?.contains("heatmap 服务尚未升级") == true)
+        XCTAssertEqual(store.snapshot.operations.first?.state, .pending)
+        XCTAssertNil(store.snapshot.operations.first?.body)
+        XCTAssertNotNil(store.snapshot.refreshedAt, "Existing records remain readable")
+        let beforeWrites = await transport.writes
+        XCTAssertEqual(beforeWrites, 0, "Never submit without an idempotency API")
+        await transport.setLegacy(false)
+        await transport.keepResponses()
+        let restored = RecordStore(directory: directory, transport: transport)
+        try restored.configure(config)
+        await restored.sync()
+        XCTAssertNil(restored.error)
+        XCTAssertEqual(restored.snapshot.operations.first?.id, id)
+        XCTAssertEqual(restored.snapshot.operations.first?.state, .complete)
+        let afterWrites = await transport.writes
+        XCTAssertEqual(afterWrites, 1)
+        XCTAssertEqual(restored.rows.count, 1)
+    }
+
+    @MainActor func testServerRollbackDoesNotMergeUnknownWriteIntoCacheTwice() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let transport = FixtureTransport()
+        let store = RecordStore(directory: directory, transport: transport)
+        try store.configure(RecordConfiguration(endpoint: URL(string: "https://rollback.invalid")!, token: "test", accessClientID: "", accessClientSecret: ""))
+        _ = try store.add([RecordIntent(activity: .pushups, amount: 20, performedOn: "2026-09-19")], rawText: "20个", sourceID: "unknown")
+        await store.sync() // The fixture commits but drops the response.
+        await transport.setLegacy(true)
+        await store.sync()
+        XCTAssertTrue(store.error?.contains("heatmap 服务尚未升级") == true)
+        XCTAssertEqual(store.snapshot.operations.first?.state, .inFlight)
+        XCTAssertEqual(store.rows.count, 1)
+        let reads = await transport.entryReads
+        XCTAssertEqual(reads, 0, "Preserve the cache until the unknown write is reconciled")
+        let writes = await transport.writes
+        XCTAssertEqual(writes, 1)
+    }
+
     @MainActor func testLostResponseSurvivesRestartWithoutDuplicateWrite() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
