@@ -1,6 +1,6 @@
 # 个人记录与本机 Pi 助手
 
-实现分支：HealthKitSync 和 heatmap 均为 `codex/personal-records-agent`，从各自的 `main` 创建。原有未跟踪的 Xcode workspace 保留。没有部署 Worker，也没有迁移或写入生产数据库。
+实现分支：HealthKitSync 和 heatmap 均为 `codex/personal-records-agent`，从各自的 `main` 创建。原有未跟踪的 Xcode workspace 保留。首次实现阶段仅进行了本地和隔离验证；2026-09-19 后续已按用户明确授权完成 heatmap 生产备份、增量迁移及 Worker 发布。发布核验确认原有 234 条记录保持一致，详情在 heatmap 仓库 `worker/PRODUCTION_RELEASE_2026-09-19.md`。
 
 ## 使用方式
 
@@ -98,7 +98,7 @@ PERSONAL_RECORDS_TEST_URL=http://127.0.0.1:18787 swift test
 | Pi 浏览器构建、TypeScript 检查、2 项运行时测试 | 通过 |
 | 原生状态测试 + 实际 HTTP/D1 联调，共 4 项 | 通过；未启动测试服务器时联调项明确跳过 |
 | heatmap 原有与新增测试，共 11 项 | 通过 |
-| heatmap Worker dry-run、lint | 通过，未部署 |
+| heatmap Worker dry-run、lint | 通过；后续生产发布见上述独立发布记录 |
 | 原健康 Worker 6 项测试与 TypeScript 检查 | 通过；生成类型核对报告 up to date |
 | iPhone 13 Pro / iOS 27.0，Pi + 原生工具探针 | 通过，见 `pi-device-probe-2026-09-19.json` |
 | iOS Debug 真机/模拟器构建与 Release 构建 | 通过；原 HealthKit 路线回调已有 Swift 并发警告未在本次改动 |
@@ -115,7 +115,7 @@ PERSONAL_RECORDS_TEST_URL=http://127.0.0.1:18787 swift test
 
 ## 同步报 `404 Not found`
 
-如果 `/api/activities` 正常，但 `/api/operations/<操作 ID>` 返回 `404 Not found`，说明线上 Worker 缺少新版操作核对接口。2026-09-19 已在现有服务上复现此情况，Access 验证通过；重复填写凭据不能补齐后端接口。
+如果 `/api/activities` 正常，但 `/api/operations/<操作 ID>` 返回 `404 Not found`，说明线上 Worker 缺少新版操作核对接口。2026-09-19 曾在现有服务上复现此情况，Access 验证通过；该线上缺口现已通过同日后端发布修复。已有 App 配置无需修改，待同步记录可直接重试。
 
 App 现在会明确提示服务需要升级。未提交的记录继续保存在本机，仍可读取旧服务的已有记录；如果某笔写入结果未知则保持原缓存，以免重复计数。待后端迁移和发布完成后，点「同步记录」会使用原操作 ID 重试，不需要重新录入。
 
