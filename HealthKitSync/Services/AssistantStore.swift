@@ -1,22 +1,6 @@
 import Foundation
 import Observation
 
-struct ChatItem: Codable, Identifiable {
-    var id = UUID().uuidString
-    let role: String
-    var text: String
-    var result: String?
-}
-
-private struct ChatArchive: Codable {
-    var sessionID = UUID().uuidString
-    var draft = UserDefaults.standard.string(forKey: "personalAssistant.unassignedDraft") ?? ""
-    var items: [ChatItem] = []
-    var runtime = Data("[]".utf8)
-    var pendingRequestID: String?
-    var pendingText: String?
-}
-
 @MainActor
 @Observable
 final class AssistantStore {
@@ -38,7 +22,7 @@ final class AssistantStore {
     func open(records: RecordStore) async {
         guard !isBusy, !Task.isCancelled else { return }
         isBusy = true
-        defer { isBusy = false }
+        defer { isBusy = false; clearPreviousDayIfNeeded() }
         await prepare(records: records)
     }
 
@@ -68,23 +52,32 @@ final class AssistantStore {
                 archiveError = nil
                 do { archive = FileManager.default.fileExists(atPath: file!.path) ? try JSONDecoder().decode(ChatArchive.self, from: Data(contentsOf: file!)) : ChatArchive() }
                 catch { archiveError = "会话文件读取失败，已保留原文件：\(error.localizedDescription)"; throw PiError.message(archiveError!) }
+                if archive.sessionDay == nil,
+                   let modified = try file!.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate {
+                    archive.sessionDay = RecordDate.key(modified)
+                }
                 items = archive.items
                 draft = initialDraft.isEmpty ? archive.draft : initialDraft
                 UserDefaults.standard.removeObject(forKey: "personalAssistant.unassignedDraft")
             }
             if let archiveError { throw PiError.message(archiveError) }
+            try rollOverIfNeeded()
             if bridge?.isReady == true { return }
             bridge?.dispose()
             let runtime = PiBridge()
             bridge = runtime
+            let runtimeSessionID = archive.sessionID
             runtime.onCheckpoint = { [weak self] body in
-                guard let self else { return }
+                guard let self, self.archive.sessionID == runtimeSessionID else { return }
                 self.archive.runtime = try JSONSerialization.data(withJSONObject: body["messages"] ?? [])
                 try self.save()
             }
-            runtime.onEvent = { [weak self] event in self?.receive(event) }
+            runtime.onEvent = { [weak self] event in
+                guard let self, self.archive.sessionID == runtimeSessionID else { return }
+                self.receive(event)
+            }
             runtime.onTool = { [weak self] body in
-                guard let self else { throw PiError.message("助手已关闭") }
+                guard let self, self.archive.sessionID == runtimeSessionID else { throw PiError.message("助手已关闭") }
                 return try await self.execute(body)
             }
             try runtime.load()
@@ -102,6 +95,27 @@ final class AssistantStore {
         do { try save() } catch { self.error = error.localizedDescription }
     }
 
+    func clearPreviousDayIfNeeded() {
+        // Finish an in-flight turn first; the next turn must use the new day.
+        guard !isBusy, !isOpening else { return }
+        do { try rollOverIfNeeded() }
+        catch { self.error = error.localizedDescription }
+    }
+
+    private func rollOverIfNeeded() throws {
+        guard let file, archiveError == nil else { return }
+        var next = archive
+        next.draft = draft
+        guard next.rollOver(at: Date()) else { return }
+        try JSONEncoder().encode(next).write(to: file, options: .atomic)
+        archive = next
+        items = []
+        currentReplyID = nil
+        error = nil
+        bridge?.dispose()
+        bridge = nil
+    }
+
     private func save() throws {
         if let archiveError { throw PiError.message(archiveError) }
         guard let file else { UserDefaults.standard.set(draft, forKey: "personalAssistant.unassignedDraft"); return }
@@ -113,7 +127,7 @@ final class AssistantStore {
     func send(records: RecordStore) async {
         guard !isBusy, !Task.isCancelled else { return }
         isBusy = true
-        defer { isBusy = false }
+        defer { isBusy = false; clearPreviousDayIfNeeded() }
         let version = cancellationVersion
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, text.count <= 4000 else { error = "请输入 1–4000 字的记录或查询"; return }

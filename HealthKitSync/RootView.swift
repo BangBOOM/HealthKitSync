@@ -28,7 +28,19 @@ struct RootView: View {
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .background { assistant.suspend() }
-            if phase == .active { Task { await records.sync() } }
+            if phase == .active {
+                assistant.clearPreviousDayIfNeeded()
+                Task { await records.sync() }
+            }
+        }
+        .task {
+            while !Task.isCancelled {
+                let now = Date()
+                guard let tomorrow = RecordDate.calendar.date(byAdding: .day, value: 1, to: RecordDate.calendar.startOfDay(for: now)) else { return }
+                do { try await Task.sleep(for: .seconds(max(1, tomorrow.timeIntervalSince(now)))) }
+                catch { return }
+                assistant.clearPreviousDayIfNeeded()
+            }
         }
         .onChange(of: network.isOnline) { _, online in
             if online, scenePhase == .active { Task { await records.sync() } }

@@ -18,7 +18,10 @@ struct AssistantPanel: View {
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 14) {
                             if assistant.items.isEmpty {
-                                Text("试试：今天做了 20 个俯卧撑，平板一分钟半。").foregroundStyle(.secondary).padding(.vertical)
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("试试：今天做了 20 个俯卧撑，平板一分钟半。")
+                                    Text("对话每天按北京时间清空，运动记录和未发送草稿保留。").font(.caption)
+                                }.foregroundStyle(.secondary).padding(.vertical)
                             }
                             ForEach(assistant.items) { item in
                                 if item.role == "tool" {
