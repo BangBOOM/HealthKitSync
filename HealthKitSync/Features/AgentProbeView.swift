@@ -13,6 +13,7 @@ struct AgentProbeView: View {
     @State private var requestID = "probe-create"
     @State private var calls = 0
     @State private var chunks = 0
+    @State private var chartResult: [String: Any] = [:]
 
     var body: some View {
         VStack {
@@ -58,7 +59,11 @@ struct AgentProbeView: View {
             try await bridge.prompt("查本周合计", requestID: requestID)
             let totals = try restored.query(from: "2026-09-14", to: "2026-09-20")["totals"] as? [String: Double]
             guard totals == ["pushups": 30, "plank": 90], calls == 3 else { throw PiError.message("查询统计验证失败") }
-            report += "PASS：查询与原生统计\n"
+            guard let visual = chartResult["visualization"],
+                  let chart = try? JSONDecoder().decode(RecordVisualization.self, from: JSONSerialization.data(withJSONObject: visual)),
+                  chart.series.count == 2, chart.series[0].total == 30, chart.series[1].total == 90,
+                  chart.presentation == .heatmap else { throw PiError.message("图表桥接验证失败") }
+            report += "PASS：查询与原生统计 / 热力图结构与真实数值\n"
             bridge.mockResponse = { _ in try await Task.sleep(for: .seconds(30)); return "" }
             let task = Task { try await bridge.prompt("取消验证", requestID: "probe-cancel") }
             try await Task.sleep(for: .milliseconds(300))
@@ -87,14 +92,16 @@ struct AgentProbeView: View {
             calls += 1
             let args = body["args"] as? [String: Any] ?? [:]
             guard let records, let name = body["name"] as? String else { throw PiError.message("Missing probe tool") }
-            return try await RecordToolService.execute(name: name, args: args, requestID: requestID, rawText: "今天20个俯卧撑，平板90秒", records: records)
+            let result = try await RecordToolService.execute(name: name, args: args, requestID: requestID, rawText: "今天20个俯卧撑，平板90秒", records: records)
+            if name == "query_entries" { chartResult = result }
+            return result
         }
         bridge.mockResponse = { payload in
             let history = payload["messages"] as? [[String: Any]] ?? []
             if history.last?["role"] as? String == "tool" {
                 return try sse(delta: ["content": "记录状态见结果卡片。"], finish: "stop")
             }
-            if requestID == "probe-query" { return try sseTool(name: "query_entries", id: "call-query", args: ["from": "2026-09-14", "to": "2026-09-20"]) }
+            if requestID == "probe-query" { return try sseTool(name: "query_entries", id: "call-query", args: ["from": "2026-09-14", "to": "2026-09-20", "presentation": "heatmap"]) }
             if history.contains(where: { ($0["role"] as? String) == "tool" }) {
                 return try sseTool(name: "update_entry", id: "call-update", args: ["id": "probe-pushups", "amount": 30, "performedOn": "2026-09-19"])
             }

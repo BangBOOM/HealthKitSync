@@ -86,3 +86,25 @@ test('Pi exposes deletion and forwards a real target ID to the native bridge', a
   assert.deepEqual(toolCalls[0].args, { id: 'record-1' });
   assert.equal(toolCalls[0].operationID, 'delete-request:delete-1');
 });
+
+test('query chart options reach native code and legacy queries remain valid', async () => {
+  for (const args of [
+    { from: '2026-09-13', to: '2026-09-19' },
+    { from: '2026-09-13', to: '2026-09-19', activity: 'plank', presentation: 'heatmap' },
+    { from: '2026-09-13', to: '2026-09-19', presentation: 'bar' },
+  ]) {
+    const calls: Record<string, unknown>[] = [];
+    const fetch: typeof globalThis.fetch = async (_url, init) => {
+      const body = JSON.parse(String(init?.body));
+      assert.equal(body.tools.length, 4);
+      if (body.messages.at(-1)?.role === 'tool') return response({ content: '请查看图表。' }, 'stop');
+      return response({ tool_calls: [{ index: 0, id: 'query-1', type: 'function', function: { name: 'query_entries', arguments: JSON.stringify(args) } }] }, 'tool_calls');
+    };
+    const runtime = new Runtime({ baseURL: 'https://fixture.invalid/v1', model: 'test', today: '2026-09-19', sessionID: 'query-test' }, [], fetch, async (message) => {
+      calls.push(structuredClone(message));
+      return message.type === 'tool' ? { entries: [], totals: {}, visualization: { series: [] } } : { ok: true };
+    });
+    await runtime.prompt('查看最近一周', 'query-request');
+    assert.deepEqual(calls.filter((call) => call.type === 'tool').map((call) => call.args), [args]);
+  }
+});
