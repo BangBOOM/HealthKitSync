@@ -9,6 +9,7 @@ final class DictationStore {
     enum Phase { case idle, preparing, recording, finishing }
     private(set) var phase: Phase = .idle
     private(set) var transcript = ""
+    private(set) var audioLevel: Float = 0
     private(set) var message: String?
     var isActive: Bool { phase != .idle }
     var status: String {
@@ -28,6 +29,10 @@ final class DictationStore {
     @ObservationIgnored private var isHeld = false
     @ObservationIgnored private var ownsAudioSession = false
     @ObservationIgnored private var tapInstalled = false
+    @ObservationIgnored private var capturedFrames = 0
+    @ObservationIgnored private var peakLevel: Float = 0
+    @ObservationIgnored private var startedAt = Date()
+    @ObservationIgnored private var sampleRate = 0.0
     @ObservationIgnored private var originalDraft = ""
     @ObservationIgnored private var updateDraft: ((String) -> Void)?
 
@@ -39,8 +44,26 @@ final class DictationStore {
         phase = .preparing
         message = nil
         transcript = ""
+        capturedFrames = 0
+        peakLevel = 0
+        audioLevel = 0
+        sampleRate = 0
+        startedAt = Date()
         originalDraft = draft
         updateDraft = update
+        // Previously granted permissions need no asynchronous authorization round trip.
+        if AVAudioApplication.shared.recordPermission == .granted,
+           SFSpeechRecognizer.authorizationStatus() == .authorized {
+            Task { [weak self] in
+                // Give touch feedback a frame to reach the screen/Taptic Engine before
+                // synchronous audio-session activation occupies the main thread.
+                try? await Task.sleep(for: .milliseconds(50))
+                guard let self, self.generation == id else { return }
+                guard self.isHeld else { self.cleanUp(); return }
+                self.start(id: id)
+            }
+            return
+        }
         Task { [weak self] in
             let microphone = await AVAudioApplication.requestRecordPermission()
             guard let self, self.generation == id else { return }
@@ -56,7 +79,7 @@ final class DictationStore {
             guard speech else { self.fail("请在系统设置中允许 HealthKitSync 使用语音识别。"); return }
             guard self.isHeld else {
                 self.cleanUp()
-                self.message = "语音输入已就绪，请再次按住麦克风说话。"
+                self.message = "语音输入已就绪，请再次按住输入栏说话。"
                 return
             }
             self.start(id: id)
@@ -72,6 +95,7 @@ final class DictationStore {
             self.recognizer = recognizer
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.record, mode: .measurement, options: .duckOthers)
+            try session.setAllowHapticsAndSystemSoundsDuringRecording(true)
             try session.setActive(true)
             ownsAudioSession = true
             let engine = AVAudioEngine()
@@ -87,12 +111,29 @@ final class DictationStore {
                 fail("麦克风当前不可用，请检查音频设备后重试。")
                 return
             }
-            input.installTap(onBus: 0, bufferSize: 1024, format: format) { @Sendable buffer, _ in request.append(buffer) }
+            sampleRate = format.sampleRate
+            input.installTap(onBus: 0, bufferSize: 1024, format: format) { @Sendable [weak self] buffer, _ in
+                request.append(buffer)
+                let frames = Int(buffer.frameLength)
+                var peak: Float = 0
+                if let samples = buffer.floatChannelData?[0] {
+                    for index in stride(from: 0, to: frames, by: 16) { peak = max(peak, abs(samples[index])) }
+                }
+                let level = peak
+                Task { @MainActor [weak self] in
+                    guard let self, self.generation == id else { return }
+                    self.capturedFrames += frames
+                    self.peakLevel = max(self.peakLevel, level)
+                    self.audioLevel = min(1, level * 8)
+                }
+            }
             tapInstalled = true
             recognition = recognizer.recognitionTask(with: request) { @Sendable [weak self] result, error in
                 let text = result?.bestTranscription.formattedString
                 let final = result?.isFinal ?? false
-                let failed = error != nil
+                let failureCode = (error as NSError?)?.code
+                let failureDomain = (error as NSError?)?.domain
+                let failureDescription = error?.localizedDescription
                 Task { @MainActor [weak self] in
                     guard let self, self.generation == id else { return }
                     if let text, !text.isEmpty {
@@ -100,7 +141,16 @@ final class DictationStore {
                         self.updateDraft?(self.originalDraft + (self.originalDraft.isEmpty ? "" : "\n") + text)
                     }
                     if final { self.complete() }
-                    else if failed { self.fail("语音识别未完成，请重试；原有草稿已保留。") }
+                    else if let failureCode {
+                        self.writeDiagnostic(errorCode: failureCode, errorDomain: failureDomain)
+                        if !self.transcript.isEmpty {
+                            self.cleanUp()
+                            self.message = "识别提前结束，已保留识别文字，请检查后发送。"
+                        } else {
+                            let detail = failureDescription ?? "苹果语音服务未返回文字"
+                            self.fail("\(detail)（\(failureCode)）。原有草稿已保留。")
+                        }
+                    }
                 }
             }
             engine.prepare()
@@ -118,15 +168,18 @@ final class DictationStore {
         isHeld = false
         guard phase == .recording else { return }
         phase = .finishing
-        stopAudio()
+        stopAudio(deactivateSession: false)
         request?.endAudio()
         deadline?.cancel()
         let id = generation
         deadline = Task { [weak self] in
-            do { try await Task.sleep(for: .seconds(4)) } catch { return }
+            do { try await Task.sleep(for: .seconds(10)) } catch { return }
             guard let self, self.generation == id else { return }
             // Keep the last partial transcription if Apple doesn't finalize promptly.
-            self.complete()
+            if self.transcript.isEmpty {
+                self.writeDiagnostic(errorDomain: "finalizationTimeout")
+                self.fail("识别服务未及时返回文字，请重试；原有草稿已保留。")
+            } else { self.complete() }
         }
     }
 
@@ -137,6 +190,7 @@ final class DictationStore {
     }
 
     private func complete() {
+        writeDiagnostic()
         if transcript.isEmpty { fail("没有识别到语音，原有草稿已保留。") }
         else { cleanUp() }
     }
@@ -147,29 +201,43 @@ final class DictationStore {
         message = reason
     }
 
-    private func stopAudio() {
+    private func stopAudio(deactivateSession: Bool = true) {
         if let engine {
             engine.stop()
             if tapInstalled { engine.inputNode.removeTap(onBus: 0); tapInstalled = false }
             self.engine = nil
         }
-        if ownsAudioSession {
+        if deactivateSession, ownsAudioSession {
             try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
             ownsAudioSession = false
         }
+    }
+
+    // Only retain technical metadata from the last attempt, never audio or transcript.
+    private func writeDiagnostic(errorCode: Int? = nil, errorDomain: String? = nil) {
+        let value: [String: Any] = [
+            "checkedAt": Date().ISO8601Format(), "phase": String(describing: phase),
+            "elapsedSeconds": Date().timeIntervalSince(startedAt), "capturedFrames": capturedFrames,
+            "sampleRate": sampleRate, "peakLevel": peakLevel, "textLength": transcript.count,
+            "errorCode": errorCode as Any? ?? NSNull(), "errorDomain": errorDomain as Any? ?? NSNull()
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: value, options: .prettyPrinted),
+              let folder = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
+        try? data.write(to: folder.appendingPathComponent("dictation-last-attempt.json"), options: .atomic)
     }
 
     private func cleanUp() {
         generation = UUID() // Ignore late results from the previous recording.
         deadline?.cancel()
         deadline = nil
-        stopAudio()
         recognition?.cancel()
+        stopAudio()
         recognition = nil
         request = nil
         recognizer = nil
         updateDraft = nil
         isHeld = false
         phase = .idle
+        audioLevel = 0
     }
 }

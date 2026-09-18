@@ -11,7 +11,7 @@ struct HealthKitSyncApp: App {
         WindowGroup {
             Group {
                 #if DEBUG
-                if ProcessInfo.processInfo.arguments.contains("--dictation-probe") {
+                if ProcessInfo.processInfo.arguments.contains("--dictation-probe") || ProcessInfo.processInfo.arguments.contains("--dictation-transcription-probe") {
                     DictationProbeView()
                 } else if ProcessInfo.processInfo.arguments.contains("--records-preview") {
                     RecordsPreviewView()

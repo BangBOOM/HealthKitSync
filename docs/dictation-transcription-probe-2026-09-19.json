@@ -1,0 +1,21 @@
+{
+  "checkedAt" : "2026-09-18T18:53:47Z",
+  "results" : [
+    {
+      "text" : "今天做了20个俯卧撑平板支撑1分钟",
+      "final" : true,
+      "code" : null,
+      "error" : null,
+      "local" : true,
+      "domain" : null
+    },
+    {
+      "code" : null,
+      "domain" : null,
+      "error" : null,
+      "local" : false,
+      "text" : "今天做了20个俯卧撑平板支撑1分钟",
+      "final" : true
+    }
+  ]
+}
