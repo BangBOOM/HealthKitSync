@@ -7,7 +7,6 @@ struct PersonalRecordsView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @FocusState private var isInputFocused: Bool
     @State private var date = Date()
-    @State private var deletingRow: RecordRow?
     @State private var deletingID: String?
     @State private var deletionError: String?
     @State private var editor: RecordEditorRequest?
@@ -15,7 +14,19 @@ struct PersonalRecordsView: View {
     @State private var autoSend = false
 
     private var dateKey: String { RecordDate.key(date) }
+    private var visibleRows: [RecordRow] { rows.filter { $0.id != deletingID } }
     private var rows: [RecordRow] { records.rows.filter { $0.performedOn == dateKey } }
+
+    private func delete(_ row: RecordRow) {
+        guard deletingID == nil else { return }
+        isInputFocused = false
+        deletingID = row.id
+        Task {
+            defer { deletingID = nil }
+            do { try await records.delete(id: row.id) }
+            catch { deletionError = error.localizedDescription }
+        }
+    }
 
     private func total(for kind: RecordKind) -> String {
         let amount = rows.filter { $0.kind == kind }.reduce(0.0) { $0 + $1.amount }
@@ -67,10 +78,10 @@ struct PersonalRecordsView: View {
             }
 
             Section("当日明细") {
-                if rows.isEmpty {
+                if visibleRows.isEmpty {
                     ContentUnavailableView("还没有记录", systemImage: "square.and.pencil", description: Text("点上方卡片填写，或在下方输入一句话。"))
                 }
-                ForEach(rows) { row in
+                ForEach(visibleRows) { row in
                     Button {
                         isInputFocused = false
                         editor = RecordEditorRequest(kind: row.kind, date: row.performedOn, row: row)
@@ -91,17 +102,10 @@ struct PersonalRecordsView: View {
                                 if deletingID == row.id { ProgressView().controlSize(.small) }
                             }.frame(width: 16)
                         }
-                    }.disabled(!row.canEdit)
-                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                        if row.canEdit {
-                            // Confirmation comes first; a destructive swipe role would
-                            // start the system's removal animation before any deletion.
-                            Button("删除", systemImage: "trash") {
-                                isInputFocused = false
-                                deletingRow = row
-                            }.tint(.red)
-                        }
-                    }
+                    }.disabled(!row.canEdit || deletingID != nil)
+                    .modifier(SwipeAwayRecord(enabled: row.canEdit && deletingID == nil) {
+                        delete(row)
+                    })
                 }
             }
             .listRowBackground(Color(uiColor: .secondarySystemGroupedBackground))
@@ -118,24 +122,10 @@ struct PersonalRecordsView: View {
             }
         }
         .listStyle(.grouped)
-        // The actual data change happens after an async response, outside the
-        // swipe transaction. Animate only membership changes, not sync status.
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: rows.map(\.id))
+        // Animate the optimistic removal and restore the row if deletion fails.
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: visibleRows.map(\.id))
         .scrollDismissesKeyboard(.interactively)
         .navigationTitle("记录")
-        .alert("删除这条记录？", isPresented: Binding(get: { deletingRow != nil }, set: { if !$0 { deletingRow = nil } }), presenting: deletingRow) { row in
-            Button("删除", role: .destructive) {
-                deletingID = row.id
-                Task {
-                    defer { deletingID = nil }
-                    do { try await records.delete(id: row.id) }
-                    catch { deletionError = error.localizedDescription }
-                }
-            }
-            Button("取消", role: .cancel) { }
-        } message: { row in
-            Text("\(row.performedOn) · \(row.kind.title) \(row.amount.formatted()) \(row.kind.unitLabel)\n删除后无法恢复，合计也会相应更新。")
-        }
         .alert("删除未完成", isPresented: Binding(get: { deletionError != nil }, set: { if !$0 { deletionError = nil } })) {
             Button("好", role: .cancel) { deletionError = nil }
         } message: { Text(deletionError ?? "") }
