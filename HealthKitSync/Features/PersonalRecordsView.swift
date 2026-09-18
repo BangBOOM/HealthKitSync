@@ -4,9 +4,11 @@ struct PersonalRecordsView: View {
     @Environment(RecordStore.self) private var records
     @Environment(AssistantStore.self) private var assistant
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @FocusState private var isInputFocused: Bool
     @State private var date = Date()
     @State private var deletingRow: RecordRow?
+    @State private var deletingID: String?
     @State private var deletionError: String?
     @State private var editor: RecordEditorRequest?
     @State private var showingAssistant = false
@@ -59,20 +61,27 @@ struct PersonalRecordsView: View {
                             RecordKindIcon(kind: row.kind).frame(width: 30).foregroundStyle(Color.accentColor)
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(row.kind.title).foregroundStyle(.primary)
-                                Text(row.status).font(.caption).foregroundStyle(row.status == "已同步" ? Color.secondary : Color.orange)
+                                Text(deletingID == row.id ? "正在删除…" : row.status)
+                                    .font(.caption).foregroundStyle(row.status == "已同步" ? Color.secondary : Color.orange)
                                 if let error = row.error { Text(error).font(.caption2).foregroundStyle(.red) }
                             }
                             Spacer()
                             Text("\(row.amount.formatted(.number.precision(.fractionLength(0...2)))) \(row.kind.unitLabel)").font(.headline).foregroundStyle(.primary)
-                            if row.canEdit { Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary) }
+                            ZStack {
+                                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+                                    .opacity(deletingID == row.id ? 0 : 1)
+                                if deletingID == row.id { ProgressView().controlSize(.small) }
+                            }.frame(width: 16)
                         }
                     }.disabled(!row.canEdit)
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                         if row.canEdit {
-                            Button("删除", systemImage: "trash", role: .destructive) {
+                            // Confirmation comes first; a destructive swipe role would
+                            // start the system's removal animation before any deletion.
+                            Button("删除", systemImage: "trash") {
                                 isInputFocused = false
                                 deletingRow = row
-                            }
+                            }.tint(.red)
                         }
                     }
                 }
@@ -88,11 +97,16 @@ struct PersonalRecordsView: View {
                 if records.endpointID.isEmpty { Text("请在设置中连接 heatmap 数据服务。").font(.caption).foregroundStyle(.secondary) }
             }
         }
+        // The actual data change happens after an async response, outside the
+        // swipe transaction. Animate only membership changes, not sync status.
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: rows.map(\.id))
         .scrollDismissesKeyboard(.interactively)
         .navigationTitle("记录")
         .alert("删除这条记录？", isPresented: Binding(get: { deletingRow != nil }, set: { if !$0 { deletingRow = nil } }), presenting: deletingRow) { row in
             Button("删除", role: .destructive) {
+                deletingID = row.id
                 Task {
+                    defer { deletingID = nil }
                     do { try await records.delete(id: row.id) }
                     catch { deletionError = error.localizedDescription }
                 }
