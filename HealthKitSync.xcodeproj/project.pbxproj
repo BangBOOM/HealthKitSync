@@ -161,6 +161,8 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = HealthKitSync;
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "读取你的运动、心率和路线，以便手动上传到你的私人数据库。";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "按住麦克风说话，将语音转成输入框中的文字，不会自动发送。";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "使用苹果语音识别将说话内容转为草稿；设备端识别不可用时可能由苹果服务器处理。";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.bangboom.HealthKitSync;
@@ -185,6 +187,8 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = HealthKitSync;
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "读取你的运动、心率和路线，以便手动上传到你的私人数据库。";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "按住麦克风说话，将语音转成输入框中的文字，不会自动发送。";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "使用苹果语音识别将说话内容转为草稿；设备端识别不可用时可能由苹果服务器处理。";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.bangboom.HealthKitSync;
