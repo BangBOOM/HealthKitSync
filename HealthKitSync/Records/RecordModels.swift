@@ -7,7 +7,6 @@ enum RecordKind: String, Codable, CaseIterable, Identifiable, Sendable {
     var unit: String { self == .pushups ? "reps" : "seconds" }
     var unitLabel: String { self == .pushups ? "个" : "秒" }
     var metricKind: String { self == .pushups ? "count" : "duration" }
-    var icon: String { self == .pushups ? "figure.strengthtraining.functional" : "timer" }
     func validate(_ value: Double) throws {
         guard value.isFinite, value > 0, value <= 1_000_000,
               self != .pushups || value.rounded() == value else { throw RecordError.message("\(title)请输入有效的正\(self == .pushups ? "整数" : "数")") }

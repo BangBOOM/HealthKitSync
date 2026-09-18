@@ -27,7 +27,7 @@ struct PersonalRecordsView: View {
                             editor = RecordEditorRequest(kind: kind, date: dateKey)
                         } label: {
                             VStack(alignment: .leading, spacing: 8) {
-                                Label(kind.title, systemImage: kind.icon).font(.subheadline)
+                                Label { Text(kind.title) } icon: { RecordKindIcon(kind: kind) }.font(.subheadline)
                                     .lineLimit(1).minimumScaleFactor(0.85)
                                 Text(rows.filter { $0.kind == kind }.reduce(0) { $0 + $1.amount }.formatted(.number.precision(.fractionLength(0...2))))
                                     .font(.system(.largeTitle, design: .rounded).bold())
@@ -54,7 +54,7 @@ struct PersonalRecordsView: View {
                         editor = RecordEditorRequest(kind: row.kind, date: row.performedOn, row: row)
                     } label: {
                         HStack(spacing: 12) {
-                            Image(systemName: row.kind.icon).font(.title2).frame(width: 30).foregroundStyle(Color.accentColor)
+                            RecordKindIcon(kind: row.kind).frame(width: 30).foregroundStyle(Color.accentColor)
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(row.kind.title).foregroundStyle(.primary)
                                 Text(row.status).font(.caption).foregroundStyle(row.status == "已同步" ? Color.secondary : Color.orange)
