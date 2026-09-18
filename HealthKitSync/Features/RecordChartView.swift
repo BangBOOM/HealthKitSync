@@ -90,10 +90,13 @@ struct RecordChartView: View {
                         let key = month + String(format: "-%02d", number)
                         let day = lookup[key]
                         Button { selectedDate = key } label: {
-                            Text("\(number)").font(.caption.monospacedDigit())
-                                .foregroundStyle((day.map { series.level($0) } ?? 0) >= 3 ? Color.white : Color.primary)
-                                .frame(maxWidth: .infinity).aspectRatio(1, contentMode: .fit)
-                                .background(day.map { color(series.level($0)) } ?? .clear, in: RoundedRectangle(cornerRadius: 5))
+                            RoundedRectangle(cornerRadius: 5)
+                                .fill(day.map { color(series.level($0)) } ?? .clear)
+                                .aspectRatio(1, contentMode: .fit)
+                                .overlay {
+                                    Text("\(number)").font(.caption.monospacedDigit()).lineLimit(1).minimumScaleFactor(0.65)
+                                        .foregroundStyle((day.map { series.level($0) } ?? 0) >= 3 ? Color.white : Color.primary)
+                                }
                                 .overlay {
                                     if selectedDate == key { RoundedRectangle(cornerRadius: 5).stroke(Color.primary, lineWidth: 2) }
                                 }

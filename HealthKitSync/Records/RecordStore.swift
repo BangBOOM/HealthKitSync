@@ -68,6 +68,13 @@ final class RecordStore {
         return (remote + pending).sorted { $0.performedOn > $1.performedOn || ($0.performedOn == $1.performedOn && $0.id > $1.id) }
     }
 
+    func referencedRecord(id: String) throws -> RecordRow {
+        guard let row = rows.first(where: { $0.id == id }) else {
+            throw RecordError.message("引用的记录已不存在，请重新选择。没有操作其他记录。")
+        }
+        return row
+    }
+
     func add(_ intents: [RecordIntent], rawText: String, sourceID: String) throws -> String {
         guard !intents.isEmpty, intents.count <= 20 else { throw RecordError.message("每次记录 1–20 项") }
         for intent in intents { try intent.validate() }

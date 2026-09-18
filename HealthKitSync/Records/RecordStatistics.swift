@@ -5,6 +5,18 @@ enum RecordPresentation: String, Codable, CaseIterable {
     var title: String { switch self { case .list: "明细"; case .heatmap: "热力图"; case .bar: "柱状图" } }
 }
 
+struct RecordQueryRequest: Codable, Equatable {
+    let from: String
+    let to: String
+    let activity: RecordKind?
+    let presentation: RecordPresentation
+    var arguments: [String: Any] {
+        var value: [String: Any] = ["from": from, "to": to, "presentation": presentation.rawValue]
+        if let activity { value["activity"] = activity.rawValue }
+        return value
+    }
+}
+
 struct RecordDay: Codable, Identifiable {
     let date: String
     let amount: Double

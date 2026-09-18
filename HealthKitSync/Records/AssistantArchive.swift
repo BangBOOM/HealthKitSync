@@ -8,7 +8,7 @@ struct ChatItem: Codable, Identifiable {
 }
 
 struct ChatArchive: Codable {
-    static let currentToolsetVersion = 1
+    static let currentToolsetVersion = 2
     var toolsetVersion: Int? = currentToolsetVersion
     var sessionID = UUID().uuidString
     var sessionDay: String? = RecordDate.key(Date())
@@ -17,6 +17,9 @@ struct ChatArchive: Codable {
     var runtime = Data("[]".utf8)
     var pendingRequestID: String?
     var pendingText: String?
+    var selectedRecord: RecordRow?
+    var pendingQuery: RecordQueryRequest?
+    var pendingReferenceID: String?
 
     /// Old replies about missing tools are not authoritative after an upgrade.
     /// Keep the visible transcript, draft and retry receipts; rebuild model context.
@@ -43,5 +46,6 @@ struct ChatArchive: Codable {
         toolsetVersion = Self.currentToolsetVersion
         items = []
         runtime = Data("[]".utf8)
+        selectedRecord = nil
     }
 }

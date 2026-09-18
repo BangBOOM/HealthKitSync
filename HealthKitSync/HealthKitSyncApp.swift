@@ -11,7 +11,9 @@ struct HealthKitSyncApp: App {
         WindowGroup {
             Group {
                 #if DEBUG
-                if ProcessInfo.processInfo.arguments.contains("--agent-probe") {
+                if ProcessInfo.processInfo.arguments.contains("--records-preview") {
+                    RecordsPreviewView()
+                } else if ProcessInfo.processInfo.arguments.contains("--agent-probe") {
                     AgentProbeView()
                 } else {
                     RootView()
