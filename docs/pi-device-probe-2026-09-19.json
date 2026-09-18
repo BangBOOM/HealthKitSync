@@ -1,0 +1,8 @@
+{
+  "device" : "iPhone",
+  "os" : "27.0",
+  "report" : "PASS：Pi 浏览器打包 \/ Swift 工具调用 \/ 中文流式回复\nPASS：原生记录操作 \/ 本地持久化 \/ 丢失响应核对无重复\nPASS：运行环境重建 \/ 对话恢复 \/ 多轮纠正 \/ 无重复执行\nPASS：查询与原生统计\nPASS：取消\nPI_PROBE_PASS",
+  "success" : true,
+  "textChunks" : 3,
+  "toolCalls" : 3
+}

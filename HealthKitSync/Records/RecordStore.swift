@@ -15,6 +15,7 @@ final class RecordStore {
     @ObservationIgnored private var file: URL?
     @ObservationIgnored private var storageError: String?
     @ObservationIgnored private var activeReads = 0
+    @ObservationIgnored private var syncAgain = false
 
     init(directory: URL? = nil, transport: any RecordTransport = HTTPRecordTransport()) {
         self.directory = directory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("PersonalRecords")
@@ -147,10 +148,17 @@ final class RecordStore {
     }
 
     func sync() async {
-        guard !isSyncing, activeReads == 0, let configuration, storageError == nil else { return }
+        if isSyncing { syncAgain = true; return }
+        guard activeReads == 0, let configuration, storageError == nil else { return }
         isSyncing = true
         error = nil
-        defer { isSyncing = false }
+        defer {
+            isSyncing = false
+            if syncAgain {
+                syncAgain = false
+                Task { await sync() }
+            }
+        }
         do {
             // Read category IDs before freezing requests, but reconcile unknown writes
             // before replacing the entry cache so provisional rows cannot be counted twice.

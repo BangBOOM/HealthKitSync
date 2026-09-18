@@ -2,6 +2,8 @@
 
 一个小型 SwiftUI iOS App，用于从 Apple 健康手动选择运动记录并上传到自建的 Cloudflare Worker API。
 
+现在也提供独立的俯卧撑/平板支撑记录页和本机 Pi 文本助手。健康同步仍为默认入口；手动记录不需要模型配置或健康授权。配置、构建、测试与部署顺序见 [个人记录与助手说明](docs/personal-records.md)。
+
 ## 项目背景
 
 这个项目最初是为了解决个人运动数据同步链路失效的问题。过去，Apple Watch
