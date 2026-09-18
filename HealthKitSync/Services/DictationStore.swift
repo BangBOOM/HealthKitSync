@@ -45,8 +45,12 @@ final class DictationStore {
             let microphone = await AVAudioApplication.requestRecordPermission()
             guard let self, self.generation == id else { return }
             guard microphone else { self.fail("请在系统设置中允许 HealthKitSync 使用麦克风。"); return }
+            // Legacy Speech callbacks may run off-main. @Sendable prevents them
+            // from inheriting this store's MainActor isolation and trapping on entry.
             let speech = await withCheckedContinuation { continuation in
-                SFSpeechRecognizer.requestAuthorization { continuation.resume(returning: $0 == .authorized) }
+                SFSpeechRecognizer.requestAuthorization { @Sendable status in
+                    continuation.resume(returning: status == .authorized)
+                }
             }
             guard self.generation == id else { return }
             guard speech else { self.fail("请在系统设置中允许 HealthKitSync 使用语音识别。"); return }
@@ -83,9 +87,9 @@ final class DictationStore {
                 fail("麦克风当前不可用，请检查音频设备后重试。")
                 return
             }
-            input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in request.append(buffer) }
+            input.installTap(onBus: 0, bufferSize: 1024, format: format) { @Sendable buffer, _ in request.append(buffer) }
             tapInstalled = true
-            recognition = recognizer.recognitionTask(with: request) { [weak self] result, error in
+            recognition = recognizer.recognitionTask(with: request) { @Sendable [weak self] result, error in
                 let text = result?.bestTranscription.formattedString
                 let final = result?.isFinal ?? false
                 let failed = error != nil
